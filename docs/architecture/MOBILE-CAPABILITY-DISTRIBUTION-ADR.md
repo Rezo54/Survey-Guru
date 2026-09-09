@@ -1,110 +1,206 @@
-# ADR — Survey Guru Mobile Capability & Distribution v1.0
+# ADR — Survey Guru Mobile Capability & Distribution v1.1
 
 **Product Owner:** TES — Task Expert Systems  
 **Operational / Field Partner:** Taskraft (Pty) Ltd  
 **Status:** Approved Architecture Decision / Living Document  
-**Version:** 1.0  
-**Date:** 9 September 2026
+**Version:** 1.1  
+**Updated:** 9 September 2026
 
 ## 1. Decision
 
-Survey Guru MVP will use an **Android-first native/hybrid field application**.
+Survey Guru will be built as a **Progressive Web App (PWA) with an Android native/hybrid field layer for capabilities that require stronger device integration and reliability**.
 
-The management application remains web-based.
+This is not a choice between PWA and Android. The intended architecture is:
 
-**iOS is explicitly outside MVP scope** and may be introduced later when customer/user demand justifies it. The Survey Guru API, domain model, persistence contracts and field-workflow contracts must remain platform-neutral enough to support a future iOS client without redesigning the backend.
+> **PWA-first shared application experience + Android native/hybrid capability layer.**
 
-Initial Android distribution should favour a **controlled/private operational distribution model** rather than making public Play Store availability a prerequisite for MVP deployment.
+The management application remains web/PWA-capable. The field experience must be installable and usable as a PWA where browser capability is sufficient, while the Android packaged field application provides the stronger native capabilities required for reliable background movement, durable offline field operation and device integration.
 
-> **Reliable field evidence is more important than maintaining a pure-PWA implementation.**
+**iOS is explicitly outside MVP scope** and may be introduced later when customer/user demand justifies it. Backend/API/domain contracts remain platform-neutral.
 
-## 2. Context
+Initial Android distribution should favour controlled/private operational distribution. Public Google Play availability is not an MVP prerequisite.
 
-Live Street Coverage is now a first-class Survey Guru MVP capability. Survey Guru must reliably determine where field teams have searched, which streets remain outstanding and whether coverage evidence is sufficient.
+## 2. Why Both PWA and Android Native/Hybrid
 
-The field application must therefore remain operational while a surveyor:
+Survey Guru needs two characteristics simultaneously:
 
-- walks/drives an assigned area;
-- locks the phone or places it in a pocket;
-- opens the camera;
-- captures evidence;
-- opens Premier Power Apps;
-- opens a navigation application;
-- receives calls/messages;
-- moves between foreground/background applications;
-- experiences weak or absent connectivity;
-- reconnects and synchronises later;
-- operates for a substantial part or all of a field shift.
+1. **low-friction web deployment and installability**; and
+2. **reliable Android field capability** for demanding operational workflows.
 
-A browser/PWA-only architecture cannot be assumed to satisfy these requirements without evidence.
+The PWA provides:
 
-## 3. Business Rationale
+- URL-based access;
+- installable web experience;
+- responsive mobile/desktop delivery;
+- service-worker/offline application shell;
+- rapid application updates;
+- reusable TypeScript/web UI;
+- broad access for supervisors, QA, clients and appropriate field use;
+- reduced duplication between web and packaged Android experiences.
 
-The initial Survey Guru field population is expected to be predominantly Android-based. Supporting iOS in the MVP would add development, testing, signing, deployment, device-behaviour and release-management complexity without a demonstrated immediate field requirement.
+The Android native/hybrid layer adds capabilities where PWA/browser behaviour is insufficient or inconsistent, particularly:
 
-Android-first therefore provides:
+- reliable background location during active Search Sessions;
+- Android foreground service integration;
+- stronger lifecycle handling across lock screen/app switching;
+- protected local persistence;
+- robust background/retry sync;
+- native camera/device integration where required;
+- battery/network/device diagnostics;
+- secure native credential/session storage where appropriate.
 
-1. focus on the dominant field-agent device platform;
-2. a smaller initial device/OS test matrix;
-3. earlier validation of background location and battery behaviour;
-4. simpler controlled field rollout;
-5. reduced MVP complexity;
-6. no backend lock-in because platform-specific capabilities remain behind the mobile client boundary.
+TES will not weaken coverage requirements merely to remain inside browser limitations.
 
-## 4. Target Product Architecture
+## 3. Product Surfaces
 
 ```text
-                    SURVEY GURU
-                         |
-          +--------------+--------------+
-          |                             |
-          v                             v
-  MANAGEMENT WEB APP             ANDROID FIELD APP
-   Next.js / Browser              Native/Hybrid Shell
-          |                             |
-          +--------------+--------------+
-                         |
-                         v
-                  Survey Guru API
-                         |
-              Authorisation / Domain
-                         |
-          Data / Storage / Coverage
+                         SURVEY GURU
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
+        WEB / PWA SURFACE              ANDROID FIELD APP
+      Next.js / TypeScript             Hybrid Native Shell
+              |                               |
+      Management / QA / Client          Shared Web/PWA UI
+      Installable PWA                   + Native Android APIs
+              |                               |
+              +---------------+---------------+
+                              |
+                              v
+                       Survey Guru API
+                              |
+                  Authorisation / Domain
+                              |
+                 Data / Storage / Coverage
 ```
 
-The Android field application may reuse web/TypeScript application logic where appropriate, but native capability is used wherever field reliability requires it.
+The Android package should reuse the Survey Guru field web/PWA experience wherever practical rather than becoming a separately designed product.
 
-## 5. Hybrid Direction
+## 4. PWA Is a First-Class Product Requirement
 
-The preferred implementation direction is a hybrid mobile shell around reusable TypeScript/web UI/domain-client code, with native Android capability exposed through controlled plugins/modules.
+Survey Guru web surfaces must be designed as a proper Progressive Web App rather than merely a responsive website.
 
-Candidate technologies such as Capacitor should be evaluated during implementation, but this ADR deliberately locks the **capability architecture**, not a specific framework before technical validation.
+PWA requirements include:
 
-Framework choice must not become a permanent Survey Guru domain dependency.
+- valid web app manifest;
+- installable application identity;
+- responsive layouts;
+- service-worker strategy;
+- application-shell caching;
+- controlled offline behaviour;
+- update/version detection;
+- safe cache invalidation;
+- explicit online/offline state;
+- recovery from interrupted requests;
+- no assumption that cached UI implies current authority;
+- secure HTTPS deployment;
+- accessible install/update experience.
 
-## 6. Native Capabilities Required
+The exact PWA implementation library is not locked by this ADR.
 
-The Android field layer must support, subject to Android platform rules and user-granted permissions:
+## 5. Shared Code Principle
+
+The PWA and Android packaged application should share as much of the following as is technically sensible:
+
+```text
+UI components
+Field workflows
+Survey rendering
+Validation presentation
+API client
+Authentication flow abstraction
+Assignment models
+Visit models
+Sync models
+Coverage presentation
+Map components
+Error/status vocabulary
+```
+
+Native Android code should concentrate on device-specific capability rather than duplicating Survey Guru business logic.
+
+## 6. Hybrid Direction
+
+Capacitor remains the preferred first candidate for evaluation because it can package the shared web/PWA field experience while exposing native Android capability.
+
+The intended boundary is conceptually:
+
+```text
+Survey Guru Field PWA/UI
+          |
+   Capability Interface
+          |
+   +------+--------------------+
+   |                           |
+Web/PWA implementation     Android native implementation
+when sufficient            when reliability requires it
+```
+
+If an off-the-shelf plugin cannot satisfy field reliability, TES may implement a narrowly scoped Kotlin plugin/module behind this interface.
+
+Framework choice remains subject to prototype evidence.
+
+## 7. Capability Abstraction
+
+Field code should not directly scatter platform checks throughout business workflows.
+
+Use capability abstractions such as:
+
+```text
+LocationCapability
+CameraCapability
+LocalStoreCapability
+SyncCapability
+ConnectivityCapability
+NotificationCapability
+DeviceDiagnosticsCapability
+```
+
+The runtime can supply a web/PWA or Android-native implementation.
+
+This keeps a future iOS implementation possible without redesigning Survey Guru's domain model.
+
+## 8. PWA Capability Policy
+
+The PWA may perform field functions that its runtime can execute credibly.
+
+However, a project requiring authoritative movement-supported Live Street Coverage must not silently fall back to inadequate browser tracking.
+
+Before an Assignment begins, Survey Guru should evaluate required capabilities.
+
+Example:
+
+```text
+Survey Capture          Ready
+Offline Package         Ready
+Camera                  Ready
+Background Coverage     Native Android required
+```
+
+If project Coverage Policy requires reliable background movement and the current PWA runtime cannot provide it, the application should direct the worker to the supported Android field app rather than pretending full capability exists.
+
+## 9. Native Capabilities Required
+
+The Android field layer must support, subject to Android rules and user permissions:
 
 - reliable foreground/background location collection for active Search Sessions;
-- appropriate Android foreground-service behaviour for ongoing field search;
+- Android foreground-service behaviour where required;
 - camera/photo capture;
-- encrypted or appropriately protected local persistence;
+- protected local persistence;
 - durable offline operation queue;
 - background/retry-capable synchronisation;
-- network/connectivity awareness;
+- connectivity awareness;
 - battery/power-state awareness where operationally useful;
 - application lifecycle recovery;
 - safe app switching;
-- secure credential/session storage;
-- device/app version diagnostics;
-- notification capability where operationally useful.
+- secure native storage;
+- app/device diagnostics;
+- notification capability where useful.
 
-## 7. Background Location Principle
+## 10. Background Location Principle
 
 Background movement collection is permitted only for a legitimate active Survey Guru field purpose.
-
-Conceptual lifecycle:
 
 ```text
 Assignment Ready
@@ -113,7 +209,7 @@ Start Assignment
       |
 Search Session ACTIVE
       |
-Native Location Service Active
+Native Location Capability Active
       |
 Movement Evidence Captured
       |
@@ -121,48 +217,31 @@ Pause / Visit / Resume
       |
 Complete Search Session
       |
-Location Service Stops
+Location Capability Stops
 ```
 
-The application must not implement unrestricted always-on worker tracking.
+Survey Guru must not implement unrestricted always-on worker tracking.
 
-## 8. Search Session & Tracking UX
+## 11. Coverage Authority Remains Server-Side
 
-When field search is active, the worker must be able to understand that location is being used for coverage calculation.
+Neither the PWA nor Android native layer is authoritative for final coverage.
 
-The UI should expose:
-
-```text
-Searching this assignment
-Movement is being used to calculate project coverage.
-
-[Pause Search]
-```
-
-The worker can see when search is active, paused or complete.
-
-Native background capability does not remove the API rule that GPS samples are evidence rather than authoritative coverage truth.
-
-## 9. Coverage Authority Remains Server-Side
-
-The Android application may calculate/display provisional local progress for usability.
-
-It cannot authoritatively set:
+The client may calculate/display provisional local progress, but cannot authoritatively set:
 
 - `COVERED`;
 - `VERIFIED`;
-- final street traversal percentage;
-- final coverage confidence;
+- final traversal percentage;
+- final confidence;
 - searched-zero-found;
 - QA outcome.
 
 Movement Batches are uploaded to the Survey Guru API and authoritative coverage is derived/reconciled server-side.
 
-## 10. Offline Architecture
+## 12. Offline Architecture
 
-The Android client must maintain a durable local store for the minimum authorised Assignment package and unsynchronised work.
+Both the PWA and Android field package should support offline-first field workflows to the extent appropriate to their runtime.
 
-Offline resources include, where required:
+Minimum authorised offline package may include:
 
 - Assignment;
 - immutable Survey Version;
@@ -172,32 +251,59 @@ Offline resources include, where required:
 - current authorised coverage state;
 - Coverage Policy/version;
 - relevant known outlets/duplicate subset;
-- Search Session state;
+- Search Session state where supported;
 - Visits/Responses/Repeatable Rows;
 - Evidence queue;
-- Movement Batches;
-- correction/revisit work;
+- Movement Batches where supported;
+- corrections/revisits;
 - sync/idempotency metadata.
 
-Offline capability does not mean unrestricted local caching of the TES Market Universe.
+Offline does not permit unrestricted caching of the TES Market Universe.
 
-## 11. Local Data Protection
+## 13. PWA Offline Storage
 
-Sensitive local data must be protected according to platform capability and data classification.
+The PWA should use appropriate browser storage for offline application state and queued work, with IndexedDB or equivalent durable browser storage preferred over fragile key/value-only approaches for substantive field records.
+
+Service-worker caches and business data stores are separate concerns:
+
+```text
+Service Worker Cache -> application shell / controlled static resources
+Offline Data Store   -> authorised assignments / visits / queues
+```
+
+Cached data never bypasses reauthorisation when synchronising.
+
+## 14. Android Local Data Protection
+
+The Android packaged application may use stronger platform storage where required.
 
 At minimum:
 
-- authentication secrets/tokens use secure platform storage;
-- application data is private to the application sandbox;
-- sensitive local databases/files use appropriate encryption/protection where required;
-- debug logs do not contain tokens or unnecessary client-sensitive payloads;
-- evidence files are not intentionally exposed to public/shared storage;
-- logout/revocation/retention behaviour is defined;
-- device-loss exposure is considered in the threat model.
+- tokens/secrets use secure platform storage;
+- application data remains app-private;
+- sensitive local DB/files receive appropriate protection;
+- debug logs exclude tokens and unnecessary sensitive payloads;
+- evidence is not intentionally placed in public/shared storage;
+- logout/revocation/retention behaviour is defined.
 
-## 12. App Switching Requirement
+## 15. Search Session & Tracking UX
 
-Survey Guru must be explicitly tested while switching between:
+When field search is active:
+
+```text
+Searching this assignment
+Movement is being used to calculate project coverage.
+
+[Pause Search]
+```
+
+The worker can clearly see active, paused and completed states.
+
+Where the PWA cannot meet a required background-location capability, it must say so before field execution rather than allowing an unreliable session.
+
+## 16. App Switching Requirement
+
+The Android application must be tested while switching between:
 
 ```text
 Survey Guru
@@ -210,311 +316,272 @@ Home screen
 Lock screen
 ```
 
-A normal application switch must not silently destroy an active Visit, pending Evidence, Search Session or unsynchronised Movement Batch.
+Normal switching must not silently destroy Visit, Evidence, Search Session or unsynchronised Movement Batch state.
 
-## 13. Premier WTS Interaction
+## 17. Premier WTS Interaction
 
-For the Premier WTS v2.006 proof of concept/fallback workflow, the surveyor may need Survey Guru and Premier Power Apps during the same field task.
+Survey Guru remains the canonical capture record.
 
-The Android architecture must therefore tolerate application switching without losing Survey Guru state.
+For Premier WTS v2.006 POC/fallback operation, the Android app must tolerate switching to Premier Power Apps and back without losing field state.
 
-Survey Guru remains the canonical capture record. Premier WTS integration status remains independent.
+The PWA architecture and shared UI must not prevent this native packaged workflow.
 
-## 14. Distribution Decision
+## 18. PWA Update Strategy
 
-MVP distribution should be operationally controlled/private where practical.
+PWA updates must avoid field disruption.
 
-Public Google Play Store availability is **not a prerequisite** for Survey Guru MVP field deployment.
+Rules:
 
-The exact distribution mechanism may evolve based on customer ownership of devices, MDM/enterprise-management capability, Android signing/update requirements and commercial rollout model.
+1. never force-refresh while unsynchronised field work is active;
+2. detect a new application version;
+3. inform the user when an update is ready;
+4. activate safely at a workflow boundary;
+5. retain/migrate compatible offline data;
+6. reject incompatible stale packages server-side where necessary with a recoverable path;
+7. record app/schema/package versions with important offline operations.
 
-The architecture must support controlled installation and controlled update management.
+## 19. Android App Update Strategy
 
-## 15. Public Play Store Later
+Controlled Android builds need explicit versioning and update management.
 
-A public Google Play release may be appropriate when:
+The backend may define minimum supported app versions for security or contract compatibility, but should avoid unnecessary forced upgrades during active field work.
 
-- Survey Guru is commercially ready for broader customer adoption;
-- self-service installation becomes valuable;
-- release/support processes are mature;
-- required privacy, permission and store-policy material is ready;
-- field reliability has already been proven operationally.
+Android package and PWA release versions should be traceable to shared application/API contract versions.
 
-Store publication is a commercial/distribution milestone, not a prerequisite for validating the product architecture.
+## 20. Distribution Decision
 
-## 16. iOS Decision
+Survey Guru has two distribution channels:
 
-**iOS is deferred.**
+### PWA
 
-No iPhone/iPad field client is required for MVP acceptance.
+Delivered securely over the web and optionally installed from the browser/device where supported.
 
-Future iOS introduction must not require redesign of:
+### Android packaged application
 
-- Survey Guru API contracts;
-- authentication/authorisation model;
-- Assignment package;
-- Search Session model;
-- Movement Batch contract;
-- Visit/Response/Evidence model;
-- offline sync contract;
-- Coverage Engine;
-- QA/integration workflows.
+Initially distributed through a controlled/private operational mechanism where practical.
 
-Platform-specific implementation belongs behind the mobile client boundary.
+Public Google Play availability is not a prerequisite for MVP field deployment.
 
-## 17. Device Support Strategy
+The exact private distribution mechanism will be selected based on device ownership, MDM/enterprise capability, signing/update needs and commercial rollout.
 
-TES/Taskraft should establish an initial supported Android device/OS matrix rather than claiming universal Android support immediately.
+## 21. Public Google Play Later
 
-Field pilot devices should represent:
+A public Google Play release may follow when broader self-service installation and commercial distribution justify it.
 
-- lower/mid-range field hardware;
-- likely Samsung/other commonly used Android devices;
-- multiple Android versions within the intended support window;
-- constrained memory/storage;
-- different battery-optimisation behaviour;
-- weak network conditions.
+Public-store release is a distribution/commercial milestone, not the definition of Survey Guru's PWA capability.
 
-Exact supported models/versions are an implementation/pilot outcome, not invented in this ADR.
+## 22. iOS Decision
 
-## 18. Battery & Sampling
+**iOS remains deferred.**
 
-Survey Guru must balance coverage evidence with battery life.
+No iOS packaged field client is required for MVP acceptance.
 
-The application should not assume second-by-second high-accuracy GPS throughout a shift.
+A user may still access suitable Survey Guru web/PWA surfaces through a compatible browser, but TES makes no MVP commitment that iOS browser/PWA behaviour will satisfy movement-supported field coverage requirements.
 
-Sampling may adapt based on:
+Future iOS native/hybrid support must reuse platform-neutral API/domain contracts.
 
-- Search Session state;
-- movement state;
-- GPS quality;
-- speed;
-- distance moved;
-- device/battery state;
-- project Coverage Policy.
+## 23. Device Support Strategy
 
-The server Coverage Engine remains responsible for deciding whether accumulated evidence is sufficient.
+TES/Taskraft will establish an initial supported Android device/OS matrix based on field evidence.
 
-## 19. Foreground Service UX
+Pilot devices should represent low/mid-range field hardware, common manufacturers, multiple Android versions, constrained resources, manufacturer battery optimisation and weak connectivity.
 
-Where Android requires a foreground service/notification for active background location, Survey Guru must present a clear operational notification rather than disguising tracking.
+## 24. Battery & Sampling
 
-Example intent:
+Survey Guru must balance evidence quality and battery life.
+
+Production sampling frequency is not yet locked. It may adapt according to Search Session state, movement, GPS quality, speed, distance, battery and Coverage Policy.
+
+The Coverage Engine remains responsible for evidence sufficiency.
+
+## 25. Foreground Service UX
+
+Where Android requires a foreground service/notification:
 
 ```text
 Survey Guru — Search active
 Recording movement for Mahikeng WTS coverage.
 ```
 
-The worker should be able to return to the active Assignment from the notification where practical.
+The notification must be clear and purpose-limited.
 
-## 20. Failure Recovery
+## 26. Failure Recovery
 
-The application must recover safely from:
+The PWA and Android application must recover safely, according to runtime capability, from:
 
+- app/browser restart;
 - process termination;
-- application restart;
-- OS background restriction;
-- device reboot where appropriate;
+- background restriction;
 - network loss;
-- failed upload;
-- partially uploaded Evidence;
+- failed uploads;
+- partial evidence upload;
 - interrupted Movement Batch submission;
-- token/session expiry;
+- session expiry;
 - server conflict;
 - storage pressure;
-- permission revocation.
+- permission revocation;
+- application update.
 
-Recovery must favour preserving legitimate unsynchronised field evidence without creating duplicate authoritative records.
+Preserve legitimate unsynchronised field evidence without duplicating authoritative records.
 
-## 21. Capability Test Matrix
+## 27. Capability Test Matrix
 
-Before production field rollout, test at minimum:
+Before production rollout test at minimum:
 
-1. foreground walking for one hour;
-2. screen locked while walking;
-3. phone in pocket with screen off;
-4. Survey Guru backgrounded;
-5. camera capture during active Search Session;
-6. repeated photo capture;
-7. switch to Premier Power Apps and return;
-8. remain in Premier Power Apps for a realistic capture interval;
-9. switch to navigation/maps and return;
-10. incoming/outgoing phone call;
-11. messaging interruption;
-12. weak GPS/urban obstruction;
-13. GPS temporarily unavailable;
-14. mobile data loss;
-15. extended offline operation;
-16. reconnection and backlog sync;
-17. app process killed and restarted;
-18. device lock/unlock cycles;
-19. battery saver enabled;
-20. low battery;
-21. low storage;
-22. permission revoked during work;
-23. session/token expiry while offline;
-24. duplicate Movement Batch retry;
-25. partial Evidence upload retry;
-26. Assignment reassigned while device offline;
-27. full realistic field shift;
-28. multiple consecutive field days;
-29. local/server coverage reconciliation;
-30. no false side-street completion caused by app lifecycle gaps.
+1. PWA installability;
+2. PWA application-shell offline launch;
+3. PWA offline Visit capture/recovery;
+4. PWA update with unsynchronised work;
+5. foreground Android walking;
+6. screen locked while walking;
+7. phone in pocket/screen off;
+8. Survey Guru backgrounded;
+9. camera capture during Search Session;
+10. repeated photo capture;
+11. Premier Power Apps switch/return;
+12. navigation/maps switch/return;
+13. phone interruption;
+14. messaging interruption;
+15. weak GPS;
+16. GPS unavailable/recovered;
+17. data loss/extended offline;
+18. reconnection/backlog sync;
+19. process kill/restart;
+20. battery saver;
+21. low battery;
+22. low storage;
+23. permission revocation;
+24. session expiry offline;
+25. duplicate Movement Batch retry;
+26. partial Evidence retry;
+27. Assignment reassigned offline;
+28. full field shift;
+29. multiple field days;
+30. local/server coverage reconciliation;
+31. side-street false-positive protection;
+32. capability-gating from unsupported PWA runtime to Android app.
 
-## 22. Pilot Measurements
+## 28. Production Acceptance Gate
 
-Capture during pilot:
+Architecture is acceptable when:
 
-- Movement Events/samples per worker/hour;
-- Movement Batch size/frequency;
-- GPS quality distribution;
-- coverage-processing delay;
-- battery consumption/hour and full shift;
-- offline storage growth;
-- evidence storage growth;
-- sync backlog duration;
-- application crashes/restarts;
-- missed background intervals;
-- false-positive/false-negative coverage cases;
-- worker support incidents;
-- Firestore/API/storage cost implications.
+1. PWA installs and operates correctly for its supported workflows;
+2. PWA offline Visit work survives interruption;
+3. PWA update handling does not destroy unsynchronised work;
+4. Android active Search Sessions survive realistic lifecycle changes;
+5. app switching does not lose field state;
+6. screen lock does not create unacceptable coverage gaps;
+7. offline work persists safely;
+8. retries remain idempotent;
+9. battery supports realistic shift;
+10. side streets are not falsely completed;
+11. server remains coverage authority;
+12. unsupported PWA capability is explicitly gated rather than silently degraded.
 
-These results determine production sampling and supported-device policy.
+## 29. Security Requirements
 
-## 23. Production Acceptance Gate
+Both surfaces preserve the existing architecture:
 
-Android field architecture is acceptable when the pilot demonstrates that:
-
-1. active Search Sessions remain reliably observable across realistic app lifecycle changes;
-2. app switching does not lose Visits/evidence/search state;
-3. screen lock does not create unacceptable coverage gaps;
-4. offline work persists safely;
-5. retries do not duplicate authoritative data;
-6. battery consumption supports a realistic shift;
-7. background-location behaviour is transparent to workers;
-8. side streets are not falsely completed because of sampling/lifecycle artefacts;
-9. server reconciliation remains authoritative;
-10. device/OS support limits are documented.
-
-## 24. Security Requirements
-
-The mobile layer must preserve Survey Guru's existing security architecture:
-
-- Firebase Authentication establishes identity only;
+- Firebase Authentication establishes identity;
 - Survey Guru API authorises business operations;
-- local client role/scope values are not trusted;
-- no Firebase Admin credentials on device;
-- no production integration secrets embedded in the APK;
-- no reusable Premier bearer-token extraction/storage strategy;
+- cached/client roles are not trusted;
+- no Firebase Admin credentials in browser or APK;
+- no production integration secrets embedded client-side;
 - evidence access remains authorised;
-- Movement Batch ownership is server verified;
 - offline sync is reauthorised/revalidated;
-- client cannot set authoritative coverage/QA/integration state.
+- Movement Batch ownership is server verified;
+- client cannot set authoritative coverage/QA/integration state;
+- service-worker caches do not become an access-control boundary.
 
-## 25. Build & Release Separation
+## 30. Environment & Release Separation
 
-Development, test/staging and production mobile builds must use separated backend/environment configuration.
+Development, staging/test and production builds/deployments use separated backend/environment configuration.
 
-Experimental builds must not accidentally point at production customer data.
+Experimental PWA or Android builds must not accidentally access live customer production data.
 
-Release signing credentials and production deployment authority must be protected separately from autonomous code-generation access.
-
-Standing principle:
+Release credentials and production deployment authority remain separate from autonomous code-generation authority.
 
 > **No autonomous agent receives simultaneous authority over code, production credentials and deployment.**
 
-## 26. Consequences
+## 31. Consequences
 
 ### Positive
 
-- credible Live Street Coverage becomes technically achievable;
-- better offline reliability;
-- robust camera/local storage integration;
-- controlled Android-first test matrix;
-- no unnecessary iOS MVP burden;
-- future iOS remains possible through platform-neutral backend contracts.
+- Survey Guru remains easy to access/install as a PWA;
+- management and field web experiences share technology;
+- Android provides reliable native capability where needed;
+- field users are not forced through public Play Store distribution for MVP;
+- shared code reduces duplication;
+- future iOS remains possible;
+- browser limitations cannot silently weaken coverage integrity.
 
 ### Costs / Risks
 
-- Android build/signing/release pipeline is required;
-- native/hybrid plugins increase technical surface area;
-- background-location permissions and OS behaviour require ongoing testing;
-- battery optimisation differs by manufacturer;
-- mobile release management becomes a formal engineering responsibility;
-- device support policy must be maintained.
+- two runtime modes must be tested;
+- capability abstraction is required;
+- service-worker/cache versioning needs discipline;
+- Android build/signing remains necessary;
+- native plugins increase technical surface area;
+- background location/battery behaviour requires ongoing device testing.
 
-These costs are accepted because reliable field evidence is a core product requirement.
+## 32. Rejected Alternative — PWA Only
 
-## 27. Rejected Alternative — Pure PWA by Default
+Rejected as the sole field architecture because movement-supported coverage cannot depend on browser background behaviour being adequate on every target Android device.
 
-Rejected as the locked production assumption.
+PWA remains a first-class Survey Guru delivery surface.
 
-A PWA may still contribute reusable UI/application code, but TES will not weaken background-location, offline or coverage requirements merely to preserve a browser-only implementation.
+## 33. Rejected Alternative — Native Android Only
 
-## 28. Rejected Alternative — Android + iOS MVP
+Rejected because Survey Guru benefits materially from web/PWA deployment, installability, rapid updates and shared code across management and field workflows.
 
-Rejected because current field demand does not justify the added implementation/test/release complexity.
+Native capability should extend the PWA architecture, not unnecessarily replace it.
 
-iOS remains a future option.
+## 34. Rejected Alternative — Android + iOS MVP
 
-## 29. Rejected Alternative — Public Store First
+Rejected because current field demand does not justify the additional implementation/test/release complexity.
 
-Rejected as an MVP prerequisite.
+## 35. Locked Decisions v1.1
 
-Initial objective is controlled operational validation. Public store distribution may follow commercial readiness.
+1. Survey Guru is a Progressive Web App.
+2. PWA is a first-class product requirement, not merely a responsive website.
+3. Survey Guru field MVP is Android-first for native packaged capability.
+4. Android native/hybrid capability extends the shared PWA field experience.
+5. iOS packaged support is outside MVP scope.
+6. Future iOS remains architecturally possible.
+7. Capacitor remains the preferred first hybrid candidate, subject to prototype evidence.
+8. Native Kotlin may be used behind capability interfaces where required.
+9. Field business logic should be shared rather than duplicated between PWA and Android.
+10. Background location is required for movement-supported Search Sessions where Coverage Policy requires it.
+11. Unsupported PWA runtimes must be capability-gated rather than silently degraded.
+12. Tracking is purpose-limited, visible and controllable.
+13. Server remains authoritative for coverage.
+14. Local coverage is provisional only.
+15. Offline persistence is mandatory for field workflows.
+16. PWA service-worker cache and offline business-data store are separate concerns.
+17. App switching to Premier/navigation/camera must be supported by Android field package.
+18. Public Google Play release is not required for MVP.
+19. Controlled/private Android distribution is preferred initially.
+20. Supported Android devices/versions are evidence-driven.
+21. Battery/sampling policy is field-tested.
+22. PWA install/offline/update tests are mandatory.
+23. Android background/lock/app-switch/full-shift tests are mandatory.
+24. No client contains production admin credentials.
+25. Environment separation applies to PWA and Android builds.
+26. Autonomous agents do not receive code + production credentials + deployment authority simultaneously.
 
-## 30. Locked Decisions v1.0
+## 36. Follow-On Work
 
-1. Survey Guru field MVP is Android-first.
-2. iOS is outside MVP scope.
-3. Future iOS remains architecturally possible.
-4. Field client uses native/hybrid capability rather than assuming pure PWA sufficiency.
-5. Framework choice is not yet permanently locked.
-6. Background location is required for active Search Sessions where Coverage Policy requires movement evidence.
-7. Tracking is purpose-limited, visible and controllable.
-8. Server remains authoritative for coverage.
-9. Local coverage may be provisional only.
-10. Offline persistence is mandatory.
-11. App switching to Premier Power Apps/navigation/camera must be supported.
-12. Public Google Play release is not required for MVP validation.
-13. Controlled/private Android distribution is preferred initially where practical.
-14. Supported Android devices/versions will be defined from field pilot evidence.
-15. Battery/sampling policy will be field-tested rather than guessed.
-16. Full-shift testing is mandatory.
-17. Background/lock-screen/app-switch testing is mandatory.
-18. Mobile client contains no production backend/admin credentials.
-19. Environment separation applies to mobile builds.
-20. Autonomous agents do not receive code + production credentials + deployment authority simultaneously.
-
-## 31. Follow-On Work
-
-1. Select and prototype the Android hybrid shell/framework.
-2. Build a minimal **Movement Reliability Prototype** before the full field UI.
-3. Establish target-device pilot matrix.
-4. Test background GPS, app switching, offline persistence and battery behaviour.
-5. Define Android signing and controlled distribution process.
-6. Feed measured results back into Coverage Policy, Field Workflow and Persistence specifications.
-7. Only then lock production sampling and device-support parameters.
-
-The recommended first implementation spike is deliberately small:
-
-```text
-Login
- -> Download Test Assignment
- -> Start Search Session
- -> Background Location
- -> Lock / App Switch / Camera / Premier
- -> Stop Search Session
- -> Upload Movement Batch
- -> Server Map-Match
- -> Compare Expected vs Actual Coverage
-```
-
-This proves the hardest field capability before TES invests in the complete mobile application.
+1. Update the Movement Reliability Prototype to explicitly use the PWA + Android capability model.
+2. Establish repository structure for shared PWA, Android shell, API and packages.
+3. Prototype Capacitor packaging of the field PWA.
+4. Prototype native Android movement capability.
+5. Test PWA offline/install/update behaviour independently of background movement.
+6. Test Android background GPS/app switching/battery.
+7. Define controlled Android signing/distribution.
+8. Feed measured results back into all affected living specifications.
 
 ---
 
 ## Living Documentation Rule
 
-This ADR is a living TES architecture decision. Material changes to supported mobile platforms, background-location strategy, distribution, offline capability, device support, signing/release or field privacy must be version-controlled here and reflected in other materially affected Survey Guru/TES documents.
+This ADR is a living TES architecture decision. Material changes to PWA strategy, supported mobile platforms, background-location capability, distribution, offline architecture, device support, signing/release or field privacy must be version-controlled here and reflected in other materially affected Survey Guru/TES documents.
