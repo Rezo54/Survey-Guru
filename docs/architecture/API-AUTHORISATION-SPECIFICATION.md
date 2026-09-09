@@ -1,26 +1,24 @@
-# Survey Guru API & Authorisation Specification v1.0
+# Survey Guru API & Authorisation Specification v1.1
 
 **Product Owner:** TES — Task Expert Systems  
 **Operational / Field Partner:** Taskraft (Pty) Ltd  
 **Status:** Approved API & Authorisation Baseline / Living Document  
-**Version:** 1.0  
-**Date:** 7 September 2026
+**Version:** 1.1  
+**Updated:** 9 September 2026
 
 ## 1. Purpose
 
-This specification defines the trusted application boundary for Survey Guru: how authenticated users, field workers, administrators, client users, service identities and future AI agents may request operations against Survey Guru data.
+This specification defines Survey Guru's trusted application boundary: how authenticated users, field workers, administrators, client users, service identities and future AI agents request operations against Survey Guru data.
 
-It implements the principles established in the Security Model and MVP Persistence Specification.
+It aligns the Security Model, Data Model v1.1, Coverage Model, MVP Persistence v1.1, Field Capture/Offline Workflow and QA architecture.
 
 > **The Survey Guru API/backend is the primary application authorisation boundary.**
 
 > **The UI is never trusted to grant, restrict or prove access.**
 
-A user who bypasses, modifies or replaces the frontend must gain zero additional authority.
+A caller who bypasses, modifies or replaces the frontend must gain zero additional authority.
 
 ## 2. Core Request Model
-
-Every protected operation follows the same logical sequence:
 
 ```text
 Client / PWA / Admin UI / Service
@@ -41,110 +39,65 @@ Client / PWA / Admin UI / Service
      Authorisation Engine
               |
               v
-      Validation / Policy
+ Validation / Policy / Idempotency
               |
               v
        Domain Service
               |
               v
-      Persistence Layer
+ Persistence / Background Processing
               |
               v
        Audit / Response
 ```
 
-No protected persistence access occurs before the required identity and authorisation decisions.
+No protected persistence operation occurs before the required identity and authorisation decisions.
 
 ## 3. Trust Boundaries
 
-### Untrusted
+Untrusted inputs include browser/PWA state, URL/query/body IDs, hidden fields, client roles, local storage, cached permissions, device-calculated coverage, client data-right values, client QA status and external-system success claims.
 
-- browser;
-- mobile/PWA client;
-- URL parameters;
-- request body;
-- hidden fields;
-- client-side roles;
-- client-side workspace/project IDs;
-- local storage;
-- cached permissions;
-- frontend route guards;
-- disabled/hidden buttons;
-- client-generated data-right classifications.
+Trusted only after verification/resolution:
 
-### Trusted only after verification
-
-- Firebase Authentication ID token/session;
-- server-loaded user record;
-- server-loaded memberships;
-- server-loaded project participation;
-- server-loaded assignment;
-- server-loaded resource ownership/scope;
-- server configuration;
-- service identity credentials.
+- verified Firebase identity/session;
+- server-loaded Survey Guru user;
+- memberships and permissions;
+- project participation;
+- assignment/resource relationships;
+- server coverage policy;
+- authoritative lifecycle state;
+- service identity credentials;
+- server-side integration/rights configuration.
 
 ## 4. API Deployment Direction
 
-MVP may use Next.js server/API routes where appropriate, provided the same authorisation model is applied.
+MVP may use Next.js server/API routes where appropriate, applying this same model. Cloud Run or equivalent trusted backend is the scalable target.
 
-The target scalable service runtime is Google Cloud Run or an equivalent trusted backend environment.
+Public application contracts must remain persistence-neutral so Firestore-to-PostgreSQL/PostGIS migration does not require client security redesign.
 
-The frontend must interact with a stable Survey Guru application-service contract so that moving backend workloads from Next.js-hosted API routes to Cloud Run does not require redesigning the domain model.
+## 5. Namespace & Contract Versioning
 
-## 5. API Namespace and Versioning
-
-Recommended external namespace:
+External namespace:
 
 ```text
 /api/v1/...
 ```
 
-Examples:
+Breaking contract changes require explicit migration/versioning. Deployed field clients cannot be silently broken.
 
-```text
-/api/v1/me
-/api/v1/workspaces/{workspaceId}/projects
-/api/v1/projects/{projectId}/assignments
-/api/v1/assignments/{assignmentId}
-/api/v1/visits/{visitId}
-```
-
-Breaking contract changes require a versioning/migration strategy rather than silently changing behaviour for deployed field clients.
+Responses should include schema/resource versions where offline reconciliation or long-lived clients require them.
 
 ## 6. Authentication
 
 Firebase Authentication is the initial identity provider.
 
-Protected requests provide a valid Firebase identity token or approved secure server session.
+The API verifies token/session validity and then resolves the Survey Guru `users/{uid}` record. A valid Firebase identity belonging to a suspended Survey Guru user is denied.
 
-The server verifies at minimum:
+Authentication answers **who are you?** Authorisation answers **may you perform this exact action on this exact resource in this context?**
 
-- token signature;
-- issuer/audience;
-- expiry;
-- authentication state;
-- Firebase UID;
-- revocation/session policy where required.
+## 7. Authorisation Context
 
-The API then loads the Survey Guru `users/{uid}` record and verifies application status.
-
-A valid Firebase token belonging to a suspended Survey Guru user does not grant Survey Guru access.
-
-## 7. Authentication vs Authorisation
-
-Authentication answers:
-
-> **Who are you?**
-
-Authorisation answers:
-
-> **Are you permitted to perform this exact action on this exact resource in this exact context?**
-
-Authentication alone never grants access to a workspace, project, assignment, client dataset or Market Universe resource.
-
-## 8. Authorisation Context
-
-For protected operations, the API constructs an authoritative context such as:
+Conceptually:
 
 ```text
 AuthContext
@@ -158,18 +111,97 @@ AuthContext
   fieldWorkerId
   assignmentScope
   resourceScope
+  dataDomain
   dataRightsClass
   serviceIdentity
   requestId
 ```
 
-Only the context needed for the requested operation should be resolved.
+Resolve only context needed for the operation.
 
-## 9. Permission Naming
+## 8. Decision Function
 
-Permissions use explicit action-oriented keys.
+```text
+ALLOW if authenticated
+AND user/service active
+AND required workspace membership
+AND required permission
+AND project scope
+AND assignment/resource scope
+AND data-domain policy
+AND data-right policy
+AND lifecycle/state permits
+AND endpoint-specific policy permits
+ELSE DENY
+```
 
-Examples:
+Default is `DENY`.
+
+## 9. Resource-First Authorisation
+
+For an object request, load the resource server-side, derive its authoritative workspace/project/assignment/worker/rights relationships, then authorise.
+
+Never authorise `vst_123` because the browser also supplied a workspace ID in which the caller happens to be a member.
+
+Cross-workspace probing should generally return `404` where hiding existence is desirable.
+
+## 10. Scope Hierarchy
+
+```text
+Identity
+  -> Organisation context
+  -> Workspace Membership
+  -> Permission
+  -> Project Scope
+  -> Assignment / Resource Scope
+  -> Data Domain
+  -> Data Rights
+  -> Lifecycle / Policy
+```
+
+Workspace membership does not automatically grant all projects. Project access does not automatically grant all assignments. Workspace access does not automatically grant Market Universe access.
+
+## 11. Field Worker Scope
+
+Typical scope:
+
+```text
+own active project participation
+ -> own Assignment
+ -> authorised zone/street/cell/outlet context
+ -> own Search Session
+ -> own Movement uploads
+ -> own Visits/Responses/Evidence
+ -> own returned corrections/revisits
+ -> authorised derived coverage context
+```
+
+Field Workers do not gain project-wide raw movement, all visits, all outlets, QA-only notes or Market Universe access merely because they participate in the project.
+
+## 12. Data Domains & Rights
+
+Domains:
+
+1. TES Platform;
+2. Workspace / Client;
+3. TES Market Universe.
+
+Rights classes:
+
+```text
+CLIENT_PRIVATE
+OPERATIONAL_SHARED
+TES_REFERENCE_PERMITTED
+PUBLIC_OR_LICENSED
+```
+
+Rights-sensitive operations include promotion, cross-workspace intelligence, exports, AI processing, external integrations, evidence sharing and future model training.
+
+Client payloads cannot upgrade rights.
+
+## 13. Permission Catalogue
+
+Representative permission keys:
 
 ```text
 workspace.read
@@ -181,6 +213,8 @@ project.archive
 survey.read
 survey.create
 survey.publish
+field_worker.read
+field_worker.manage
 assignment.read
 assignment.read_own
 assignment.create
@@ -190,338 +224,120 @@ visit.read
 visit.read_own
 visit.create
 visit.update_own
+visit.submit_own
 visit.reopen
-response.create
-response.update_own
+response.write_own
 evidence.upload
 evidence.read
 evidence.export
-validation.read
-validation.create
-validation.override
+search_session.create_own
+movement.submit_own
 coverage.read
-coverage.manage
+coverage.read_own
+coverage.verify
+coverage.override
+coverage.exception.resolve
+qa.read
+qa.review
+qa.assign
+qa.resolve
+qa.override
+outlet.lookup_workspace
+outlet.create_candidate
+outlet.identity_review
+outlet.merge
+market.outlet.lookup
+market.promotion.request
+market.promotion.approve
+integration.read
+integration.manage
+integration.retry
 report.view
 report.generate
 data.export
-market.outlet.lookup
-market.outlet.create_candidate
-market.outlet.verify
-market.outlet.merge
-market.coverage.read
-market.intelligence.read
-market.intelligence.export
-market.admin
 audit.read
 security.manage
 ```
 
-Roles are bundles of permissions; roles are not a substitute for resource-scope checks.
+Roles bundle permissions but never replace scope checks.
 
-## 10. Role Baseline
+## 14. Response Minimisation
 
-### TES Super Administrator
+Authorisation controls records **and fields**.
 
-Platform/security administration with explicitly granted privileged capabilities. Does not automatically imply unrestricted reading of every client-private response.
+Field Worker map responses receive only assignment-relevant geometry/outlets/coverage. Client viewers need not receive internal QA notes. Analysts may receive pseudonymised worker identity. Raw movement is normally excluded from client/supervisor responses unless a specifically authorised QA/support purpose requires it.
 
-### TES Platform Administrator
-
-Operational platform administration without automatic unrestricted customer-data access.
-
-### Workspace Administrator
-
-Manages authorised workspace configuration, members and projects.
-
-### Project Manager
-
-Manages allocated projects, field workers, assignments and operational reporting.
-
-### QA / Validator
-
-Reviews submitted visits/evidence and creates validation decisions.
-
-### Analyst
-
-Reads authorised analytical/project data. Export remains a separate permission.
-
-### Client Viewer
-
-Reads specifically authorised client dashboards/results/reports.
-
-### Field Worker
-
-Reads own assignments and required capture context; creates/updates own permitted field records.
-
-## 11. Authorisation Decision Function
-
-Conceptually every operation resolves:
+## 15. Standard Errors
 
 ```text
-ALLOW if:
-  authenticated
-  AND user/service active
-  AND required workspace membership exists where applicable
-  AND required permission exists
-  AND project scope permits access where applicable
-  AND assignment/resource scope permits access where applicable
-  AND data-right/domain policy permits action
-  AND resource lifecycle permits action
-ELSE DENY
+400 malformed/invalid request
+401 missing/invalid/expired authentication
+403 authenticated but forbidden where existence disclosure is acceptable
+404 absent or intentionally hidden resource
+409 lifecycle/version/idempotency conflict
+422 domain validation failure
+429 rate/abuse limit
+500/503 server/dependency failure
 ```
 
-Default outcome is **DENY**.
+Never expose stack traces, credentials or sensitive internal identifiers in production errors.
 
-## 12. Resource-First Authorisation
+## 16. Input & Mass-Assignment Protection
 
-The API must not authorise a resource operation using only IDs supplied by the client.
+Every endpoint defines schema, allowed values, relationship validation, lifecycle transitions and explicit writable fields.
 
-Example request:
-
-```text
-GET /api/v1/visits/vst_123
-```
-
-Correct sequence:
-
-1. authenticate caller;
-2. load `vst_123` server-side;
-3. obtain its authoritative `workspaceId`, `projectId`, `fieldWorkerId`, rights and state;
-4. resolve caller's access to that resource;
-5. return only authorised fields.
-
-Incorrect sequence:
-
-1. trust `workspaceId=ws_ABC` sent by browser;
-2. check membership in `ws_ABC`;
-3. return `vst_123` without confirming it belongs there.
-
-## 13. Cross-Workspace Isolation
-
-Workspace isolation is mandatory.
-
-Every workspace-scoped query must include an authoritative workspace constraint derived from the caller/resource context.
-
-The API must never perform a broad lookup and rely on the UI to filter records afterward.
-
-Knowing another workspace's project, outlet, visit or evidence ID must not expose its existence or contents beyond deliberately permitted metadata.
-
-## 14. Project Scope
-
-Workspace access does not necessarily imply access to every project.
-
-The API evaluates:
-
-- workspace membership;
-- role/permission;
-- project participation/restriction;
-- requested action.
-
-Project Managers, analysts and validators may be scoped to selected projects.
-
-## 15. Assignment Scope
-
-Field Worker access is assignment-centric.
-
-Typical Field Worker scope:
+Clients cannot authoritatively set fields such as:
 
 ```text
-Field Worker
-  -> own active Project participation
-  -> own Assignment
-  -> assignment target/zone/outlet context
-  -> own Visit
-  -> own Responses
-  -> own Evidence
-  -> correction requests for own returned work
-```
-
-A Field Worker cannot enumerate all project outlets/visits simply because their assignment belongs to the project.
-
-## 16. Data Domain Scope
-
-Survey Guru distinguishes:
-
-1. TES Platform Domain;
-2. Workspace / Client Domain;
-3. TES Market Universe.
-
-Workspace access never automatically grants TES Market Universe access.
-
-Market permissions are separately evaluated.
-
-## 17. Data-Rights Policy
-
-Initial classifications:
-
-```text
-CLIENT_PRIVATE
-OPERATIONAL_SHARED
-TES_REFERENCE_PERMITTED
-PUBLIC_OR_LICENSED
-```
-
-The API must enforce rights-sensitive operations including:
-
-- Market Universe promotion;
-- cross-workspace intelligence use;
-- analytics export;
-- AI processing;
-- external integrations;
-- evidence export;
-- future model training.
-
-A caller cannot upgrade rights classification merely by submitting a different value.
-
-## 18. API Response Minimisation
-
-Authorisation controls both records and fields.
-
-The API returns only fields necessary for the caller's operation.
-
-Examples:
-
-- a Field Worker may need outlet name/location but not client commercial metadata;
-- a Client Viewer may need accepted results but not internal QA notes;
-- an Analyst may receive pseudonymised field-worker identity where names are unnecessary;
-- TES platform administration may require account metadata without client survey answers.
-
-## 19. Standard Error Behaviour
-
-### `400 Bad Request`
-Malformed or semantically invalid request.
-
-### `401 Unauthorized`
-Authentication missing, invalid or expired.
-
-### `403 Forbidden`
-Caller is authenticated but lacks permission where revealing resource existence is acceptable.
-
-### `404 Not Found`
-Resource does not exist **or** resource existence should not be disclosed to the caller.
-
-### `409 Conflict`
-Lifecycle/state/version/idempotency conflict.
-
-### `422 Unprocessable Entity`
-Well-formed request fails domain validation where this distinction is useful.
-
-### `429 Too Many Requests`
-Rate/abuse limit reached.
-
-### `500/503`
-Unexpected/server/dependency failure. Do not leak internal stack traces or secrets.
-
-Cross-workspace object probing should generally resolve to `404` where hiding existence is desirable.
-
-## 20. Request IDs and Correlation
-
-Every API request receives a server-generated or validated correlation/request ID.
-
-Use it across:
-
-- application logs;
-- audit events;
-- background jobs;
-- error reporting;
-- export jobs;
-- future distributed services.
-
-Do not treat arbitrary client-supplied request IDs as globally trustworthy identifiers.
-
-## 21. Input Validation
-
-Every endpoint validates:
-
-- schema;
-- type;
-- length;
-- allowed values;
-- required fields;
-- format;
-- lifecycle/state transition;
-- resource relationships;
-- upload metadata;
-- business constraints.
-
-Unknown writable fields should be rejected or ignored according to explicit endpoint policy, never automatically persisted.
-
-## 22. Mass-Assignment Protection
-
-Endpoints use explicit writable-field allowlists.
-
-Example field-worker visit update may allow:
-
-```text
-departureAt
-responses
-evidence references
-permitted outlet corrections
-```
-
-It must not allow caller control over:
-
-```text
-workspaceId
-projectId
-fieldWorkerId
+workspaceId/projectId derived from resource
+fieldWorkerId ownership
 marketOutletId
-dataRightsClass
+rights promotion
 qaStatus
-acceptedAt
-reviewedBy
-createdBy
+coverage state/percent/confidence
+VERIFIED state
+reviewedBy/verifiedBy
+integration success
 permissions
 ```
 
-## 23. Idempotency
+## 17. Idempotency
 
-Create/submit operations vulnerable to network retries support idempotency.
-
-Recommended header:
+Retry-prone operations support stable IDs and/or:
 
 ```text
-Idempotency-Key: <opaque-client-operation-id>
+Idempotency-Key: <opaque-operation-id>
 ```
 
-The server binds the key to caller + operation + relevant scope and prevents accidental duplicate processing.
+Bind idempotency to caller/service + endpoint/action + authoritative scope.
 
-Especially important for:
+Required for at least visit creation/submission, evidence registration/finalisation, movement batches, offline sync, corrections, integration jobs, export jobs and promotion requests.
 
-- visit creation;
-- final visit submission;
-- evidence registration;
-- offline sync batches;
-- export requests;
-- promotion requests.
+## 18. Concurrency
 
-## 24. Pagination
+High-impact mutable resources use optimistic concurrency through `expectedVersion`, `If-Match` or equivalent.
 
-List endpoints must use bounded pagination.
+Stale conflicting mutations return `409`, including QA resolution, assignment reassignment, integration profile activation and coverage override.
 
-Prefer opaque cursor-based pagination for high-volume collections rather than unbounded list responses.
+## 19. Pagination, Filtering & Spatial Bounds
 
-The API defines maximum page sizes and refuses attempts to bypass limits.
+List endpoints are bounded and preferably cursor-paginated.
 
-## 25. Filtering and Sorting
+Only documented filters/sorts are accepted. No generic arbitrary Firestore query API exists.
 
-Clients may request only documented filter/sort fields.
+Spatial endpoints require bounded project/assignment/viewport context and enforce maximum bounds/feature counts.
 
-The server translates approved filters into constrained persistence queries.
+## 20. Identity & Context API
 
-Do not expose a generic arbitrary Firestore query API to the frontend.
+```text
+GET /api/v1/me
+GET /api/v1/me/workspaces
+GET /api/v1/me/assignments
+```
 
-## 26. API Surface — Identity and Context
+`/me/assignments` returns only caller-authorised assignments.
 
-### `GET /api/v1/me`
-Returns minimal authenticated profile and available workspace context.
-
-### `GET /api/v1/me/workspaces`
-Returns only workspaces with active authorised membership.
-
-### `GET /api/v1/me/assignments`
-Field-worker-oriented endpoint returning only own permitted assignments.
-
-## 27. API Surface — Workspaces
+## 21. Workspace API
 
 ```text
 GET    /api/v1/workspaces/{workspaceId}
@@ -531,11 +347,9 @@ PATCH  /api/v1/workspaces/{workspaceId}/members/{membershipId}
 DELETE /api/v1/workspaces/{workspaceId}/members/{membershipId}
 ```
 
-Membership writes require explicit administration permission and audit events.
+Membership writes are audited. DELETE normally means revoke/deactivate.
 
-`DELETE` here normally means revoke/deactivate membership, not destroy historical records.
-
-## 28. API Surface — Projects
+## 22. Project API
 
 ```text
 GET   /api/v1/workspaces/{workspaceId}/projects
@@ -548,9 +362,9 @@ POST  /api/v1/projects/{projectId}/complete
 POST  /api/v1/projects/{projectId}/archive
 ```
 
-Lifecycle transitions are explicit domain operations rather than arbitrary status-field writes.
+Lifecycle transitions are explicit operations.
 
-## 29. API Surface — Survey Definitions
+## 23. Survey API
 
 ```text
 GET  /api/v1/workspaces/{workspaceId}/surveys
@@ -561,24 +375,16 @@ GET  /api/v1/survey-versions/{surveyVersionId}
 POST /api/v1/survey-versions/{surveyVersionId}/publish
 ```
 
-Published versions are immutable. Editing requires a new draft version.
+Published Survey Versions are immutable.
 
-Field Workers receive only the published survey version required by their assignment/project.
-
-## 30. API Surface — Field Workers
+## 24. Field Worker & Assignment API
 
 ```text
 GET  /api/v1/workspaces/{workspaceId}/field-workers
 POST /api/v1/workspaces/{workspaceId}/field-workers
 GET  /api/v1/field-workers/{fieldWorkerId}
 POST /api/v1/projects/{projectId}/field-workers
-```
 
-Personal/HR information returned is minimised according to role.
-
-## 31. API Surface — Assignments
-
-```text
 GET   /api/v1/projects/{projectId}/assignments
 POST  /api/v1/projects/{projectId}/assignments
 GET   /api/v1/assignments/{assignmentId}
@@ -589,21 +395,64 @@ POST  /api/v1/assignments/{assignmentId}/reassign
 POST  /api/v1/assignments/{assignmentId}/cancel
 ```
 
-Field Workers use assignment-specific operations only for their own assignment where permitted.
+Field Worker self-actions require ownership and valid lifecycle.
 
-## 32. API Surface — Workspace Outlets
+## 25. Assignment Package API
+
+Field PWA receives an explicit minimum offline package:
+
+```text
+GET /api/v1/assignments/{assignmentId}/package
+```
+
+Server verifies caller owns/is permitted for assignment, then returns only necessary:
+
+- assignment/project context;
+- immutable survey version;
+- zone/boundary;
+- eligible street segments/simplified geometry;
+- coverage cells/current authorised state;
+- coverage policy/version;
+- relevant known outlets/duplicate-check subset;
+- reference options;
+- package/schema/version metadata.
+
+It must not return the entire TES Market Universe for convenience.
+
+## 26. Workspace Outlet & Identity API
 
 ```text
 GET  /api/v1/workspaces/{workspaceId}/outlets
-POST /api/v1/workspaces/{workspaceId}/outlets
 GET  /api/v1/workspace-outlets/{workspaceOutletId}
 PATCH /api/v1/workspace-outlets/{workspaceOutletId}
-POST /api/v1/workspace-outlets/match
+POST /api/v1/assignments/{assignmentId}/outlet-candidates
+POST /api/v1/assignments/{assignmentId}/outlet-match
+GET  /api/v1/outlet-candidates/{candidateId}/matches
+POST /api/v1/outlet-candidates/{candidateId}/confirm-existing
+POST /api/v1/outlet-candidates/{candidateId}/confirm-new
 ```
 
-Field Worker outlet creation should normally occur through assignment/visit workflow rather than unrestricted workspace-level creation.
+Field Worker candidate creation is assignment-scoped.
 
-## 33. API Surface — Visits
+Matching results are field-minimised and rights-aware. The worker does not receive unrelated client/Market Universe metadata.
+
+## 27. Critical Store Identity Gate
+
+Before a new permanent outlet is accepted, the API may evaluate nearby/similar candidates using permitted signals.
+
+Outcomes:
+
+```text
+NO_LIKELY_MATCH
+POSSIBLE_MATCH
+STRONG_MATCH
+CONFIRMED_EXISTING
+CONFIRMED_NEW
+```
+
+The API never silently merges permanent outlets. High-impact merge/identity resolution requires separately authorised workflow and audit.
+
+## 28. Visit & Response API
 
 ```text
 POST /api/v1/assignments/{assignmentId}/visits
@@ -611,74 +460,205 @@ GET  /api/v1/visits/{visitId}
 PATCH /api/v1/visits/{visitId}
 POST /api/v1/visits/{visitId}/submit
 POST /api/v1/visits/{visitId}/reopen
+
+PUT    /api/v1/visits/{visitId}/responses/{questionId}
+PUT    /api/v1/visits/{visitId}/response-rows/{rowId}
+DELETE /api/v1/visits/{visitId}/response-rows/{rowId}
 ```
 
-On creation, the server derives workspace/project/fieldWorker/assignment scope from the authoritative assignment.
+On visit creation, workspace/project/worker are derived from Assignment.
 
-Field Workers cannot select another worker's identity in the request body.
+Response API verifies immutable Survey Version membership and type/rule constraints.
 
-## 34. API Surface — Responses
+Repeatable row deletion during editable field capture is logical removal/supersession where history is required; accepted historical records are not destructively rewritten.
 
-Preferred field workflow allows response changes through the visit boundary:
-
-```text
-PUT /api/v1/visits/{visitId}/responses/{questionId}
-```
-
-The server verifies:
-
-- caller owns/has permitted access to visit;
-- visit lifecycle allows editing;
-- question belongs to visit's immutable survey version;
-- response matches question type/rules;
-- caller may modify that response.
-
-## 35. API Surface — Evidence
-
-Recommended upload sequence:
+## 29. Evidence API
 
 ```text
 POST /api/v1/visits/{visitId}/evidence/initiate
-PUT/POST <controlled upload mechanism>
 POST /api/v1/evidence/{evidenceId}/complete
-GET /api/v1/evidence/{evidenceId}/access
+GET  /api/v1/evidence/{evidenceId}/access
 ```
 
-The initiate operation creates authoritative metadata and an approved object target.
+Initiate creates authoritative metadata and controlled object target. Complete verifies expected object/integrity metadata before marking upload complete.
 
-The client does not choose an arbitrary protected storage path.
+Object keys are not credentials. Access is reauthorised every time; API may stream or issue short-lived signed access.
 
-Access endpoint reauthorises every retrieval and either streams the object or returns a short-lived signed URL.
+## 30. Search Session API
 
-## 36. API Surface — Validation / QA
+```text
+POST /api/v1/assignments/{assignmentId}/search-sessions
+GET  /api/v1/search-sessions/{searchSessionId}
+POST /api/v1/search-sessions/{searchSessionId}/start
+POST /api/v1/search-sessions/{searchSessionId}/pause
+POST /api/v1/search-sessions/{searchSessionId}/resume
+POST /api/v1/search-sessions/{searchSessionId}/complete
+```
+
+Server derives worker/project/assignment and locks the applicable Coverage Policy version.
+
+A worker cannot open a Search Session for another worker's Assignment.
+
+## 31. Movement Batch API
+
+Preferred endpoint:
+
+```text
+POST /api/v1/search-sessions/{searchSessionId}/movement-batches
+```
+
+Request contains stable batch/device ID, sequence range, capture interval, policy-compatible Movement Events and idempotency key.
+
+Server verifies:
+
+- Search Session ownership;
+- Assignment/project scope;
+- capture timestamps;
+- event count/size limits;
+- coordinate/range validity;
+- sequence/idempotency;
+- session state and offline-authority policy;
+- rate/abuse limits.
+
+Client cannot submit authoritative street matches, coverage percentages or VERIFIED state.
+
+Successful ingestion may return `ACCEPTED_FOR_PROCESSING` before derived coverage is complete.
+
+## 32. Movement Privacy API Rule
+
+There is intentionally no ordinary endpoint such as:
+
+```text
+GET /api/v1/projects/{projectId}/all-worker-gps-trails
+```
+
+Raw movement retrieval requires a specific QA/security/support purpose, stronger permission, bounded worker/time/resource scope and audit where appropriate.
+
+Normal management maps consume derived coverage and current operational state rather than unrestricted historical trails.
+
+## 33. Field Coverage API
+
+```text
+GET /api/v1/assignments/{assignmentId}/coverage
+GET /api/v1/assignments/{assignmentId}/street-segments
+GET /api/v1/assignments/{assignmentId}/coverage/changes?sinceVersion=...
+```
+
+Returns assignment-bounded authoritative coverage plus version metadata.
+
+A field response may include:
+
+```text
+coverageVersion
+streetSegments[]
+  projectStreetSegmentId
+  simplifiedGeometry
+  state
+  percent
+  confidence
+cells[]
+  coverageCellId/h3Index
+  state
+  percent
+syncMetadata
+```
+
+Local provisional coverage remains device-side and is reconciled against this authoritative response.
+
+## 34. Supervisor Coverage API
+
+```text
+GET /api/v1/projects/{projectId}/coverage
+GET /api/v1/projects/{projectId}/coverage/summary
+GET /api/v1/projects/{projectId}/coverage/map?bbox=...
+GET /api/v1/projects/{projectId}/coverage/exceptions
+GET /api/v1/projects/{projectId}/coverage/snapshots
+```
+
+Supervisor/project endpoints require project-level coverage permission and return bounded/aggregated data.
+
+Raw street-network coverage and any weighted-priority coverage must be clearly distinguishable.
+
+## 35. Coverage Verification & Override API
+
+```text
+POST /api/v1/coverage/{resourceType}/{resourceId}/verify
+POST /api/v1/coverage/{resourceType}/{resourceId}/override
+POST /api/v1/coverage-exceptions/{exceptionId}/resolve
+```
+
+Verification and override are different operations.
+
+Verification confirms evidence under authorised process. Override exceptionally changes derived current state without deleting source evidence.
+
+Overrides require stronger permission, reason, expected version, audit and retained previous state.
+
+Field Workers cannot set `VERIFIED`.
+
+## 36. Searched-Zero-Found Rule
+
+There is no field endpoint that simply sets `searchedZeroFound=true`.
+
+It is server-derived only after qualifying search/coverage evidence is satisfied, relevant pending outlet submissions are reconciled and qualifying outlet count is zero.
+
+This prevents unvisited areas from being represented as searched-zero-found.
+
+## 37. Validation & QA API
 
 ```text
 GET  /api/v1/projects/{projectId}/qa-queue
-GET  /api/v1/visits/{visitId}/validations
-POST /api/v1/visits/{visitId}/validations
-POST /api/v1/validations/{validationId}/override
-POST /api/v1/visits/{visitId}/accept
-POST /api/v1/visits/{visitId}/return-for-correction
+GET  /api/v1/qa-work-items/{qaWorkItemId}
+POST /api/v1/qa-work-items/{qaWorkItemId}/claim
+POST /api/v1/qa-work-items/{qaWorkItemId}/resolve
+POST /api/v1/qa-work-items/{qaWorkItemId}/return-for-correction
+POST /api/v1/qa-work-items/{qaWorkItemId}/require-revisit
+GET  /api/v1/resources/{resourceType}/{resourceId}/validation-results
 ```
 
-Override operations require stronger permission and audit.
+Validation Results are normally generated by server rules/services and authorised validators, not arbitrary field-worker payloads.
 
-## 37. API Surface — Coverage
+QA response minimisation hides sensitive/internal fields from roles that do not need them.
+
+## 38. QA Severity Enforcement
+
+The API enforces the rule severity model:
 
 ```text
-GET  /api/v1/projects/{projectId}/coverage
-GET  /api/v1/projects/{projectId}/coverage/{coverageCellId}
-POST /api/v1/projects/{projectId}/coverage/{coverageCellId}/search-event
-POST /api/v1/projects/{projectId}/coverage/{coverageCellId}/verify
+BLOCK
+WARN
+FLAG_FOR_QA
+INFO
 ```
 
-Field clients may submit authorised search/movement evidence, but the server calculates authoritative coverage state/metrics.
+`BLOCK` can prevent the relevant transition. `WARN` may allow progression while preserving warning. `FLAG_FOR_QA` creates/reuses review workflow. `INFO` records non-blocking context.
 
-A client cannot simply declare an area `verified` unless its role/action permits that transition.
+The frontend cannot downgrade a rule severity.
 
-## 38. API Surface — TES Market Universe
+## 39. Correction API
 
-Separate namespace and permissions:
+```text
+GET  /api/v1/visits/{visitId}/correction-request
+POST /api/v1/visits/{visitId}/corrections
+POST /api/v1/visits/{visitId}/corrections/{correctionId}/submit
+```
+
+Field Worker can correct only authorised returned work and permitted fields.
+
+Server preserves original values/revision lineage and re-runs relevant validation.
+
+Accepted historical data is not silently overwritten.
+
+## 40. Revisit API
+
+```text
+GET  /api/v1/revisit-tasks/{revisitTaskId}
+POST /api/v1/revisit-tasks/{revisitTaskId}/create-assignment
+POST /api/v1/revisit-tasks/{revisitTaskId}/complete
+```
+
+A revisit creates a new Visit linked to the original. It does not rewrite history to pretend the first visit did not occur.
+
+## 41. Market Universe API
 
 ```text
 GET  /api/v1/market/outlets/lookup
@@ -690,11 +670,42 @@ POST /api/v1/market/promotion-requests/{requestId}/reject
 POST /api/v1/market/outlets/{outletId}/merge
 ```
 
-Market operations are not automatically available to ordinary workspace users.
+Market operations use separate permissions and rights validation.
 
-Promotion requires rights validation and audit.
+Merge never occurs merely because an algorithm reports a strong match.
 
-## 39. API Surface — Reports and Exports
+## 42. Integration API
+
+```text
+GET   /api/v1/workspaces/{workspaceId}/integrations
+GET   /api/v1/integrations/{integrationProfileId}
+PATCH /api/v1/integrations/{integrationProfileId}
+POST  /api/v1/integrations/{integrationProfileId}/test
+POST  /api/v1/integrations/{integrationProfileId}/activate
+GET   /api/v1/visits/{visitId}/integration-jobs
+POST  /api/v1/integration-jobs/{integrationJobId}/retry
+```
+
+Integration configuration is privileged and audited.
+
+Secrets/tokens are never returned in ordinary API responses.
+
+## 43. Premier WTS Integration Rule
+
+Survey Guru acceptance and Premier WTS sync are independent states.
+
+```text
+Survey Guru: ACCEPTED
+Premier WTS: PENDING / SYNCING / SYNCED / ACTION_REQUIRED
+```
+
+For Premier WTS v2.006, an adapter cannot set `SYNCED` merely because fields were populated. It requires confirmation of the final Premier `Submit Surveys` operation.
+
+A failed Premier sync does not discard the Survey Guru Visit.
+
+Retries are idempotent and use the authorised user's/client integration context.
+
+## 44. Reports & Exports API
 
 ```text
 GET  /api/v1/projects/{projectId}/dashboard
@@ -705,264 +716,176 @@ GET  /api/v1/exports/{exportJobId}
 GET  /api/v1/exports/{exportJobId}/access
 ```
 
-Export requests define permitted scope/fields server-side.
+Export is a separate data-exfiltration permission. Server enforces field allowlists, rights, scope, row/count limits where appropriate, audit and short-lived output access.
 
-The server must prevent users from requesting unauthorised hidden fields through export parameters.
+Viewing does not imply exporting.
 
-## 40. Export Security
+## 45. Offline Sync API
 
-Export is a privileged data-exfiltration capability.
-
-Required controls include:
-
-- explicit `data.export` or domain-specific export permission;
-- workspace/project scope;
-- field allowlist;
-- rights classification checks;
-- optional row/count limits;
-- audit event;
-- short-lived output access;
-- expiration/deletion of generated files according to policy.
-
-Viewing a dashboard never implies export permission.
-
-## 41. Bulk Operations
-
-Bulk endpoints require explicit design. Do not expose generic bulk update/delete APIs.
-
-Every bulk operation defines:
-
-- maximum item count;
-- required permission;
-- allowed fields/actions;
-- transactional/batch behaviour;
-- partial-failure semantics;
-- idempotency behaviour;
-- audit requirements.
-
-High-risk bulk operations may require step-up approval in future.
-
-## 42. Offline Sync API
-
-Recommended conceptual endpoint:
+The MVP may expose a coordinated endpoint:
 
 ```text
 POST /api/v1/sync
 ```
 
-or resource-specific batch endpoints.
+plus resource-specific batch endpoints.
 
-Each offline operation contains:
+Each operation includes stable local/domain ID, operation type, capture time, payload, idempotency key and optional previous server version.
 
-- local operation ID;
-- resource/client reference;
-- operation type;
-- captured timestamp;
-- payload;
-- optional previous server version.
+Every operation is independently reauthenticated, reauthorised and validated on arrival.
 
-Server processes each operation independently through normal authorisation and validation.
+Offline capture does not create permanent authority. However, sync policy must distinguish legitimate evidence captured while an Assignment was valid from malicious activity after revocation. The server uses capture timestamps, assignment validity/history, session state and policy rather than blindly accepting or rejecting solely on current UI state.
 
-Offline storage does not allow the client to bypass current revoked access. If membership/assignment was revoked while offline, sync may be rejected.
+## 46. Offline Sync Result
 
-## 43. Concurrency / Version Conflicts
-
-Mutable resources should carry a version/revision or update timestamp suitable for optimistic concurrency.
-
-The API may require:
+Sync returns per-operation results rather than one ambiguous success flag:
 
 ```text
-If-Match / expectedVersion
+operationId
+status
+serverResourceId
+serverVersion
+errorCode
+message
+retryable
 ```
 
-or equivalent domain version.
+Possible states:
 
-Conflicting edits return `409` rather than silently overwriting accepted server changes.
+```text
+SYNCED
+ACCEPTED_FOR_PROCESSING
+RETRY
+CONFLICT
+REJECTED
+NEEDS_ATTENTION
+```
 
-Published survey versions and accepted historical observations remain immutable except through explicit correction/supersession workflows.
+Partial failure does not cause successful unrelated operations to be duplicated on retry.
 
-## 44. Rate Limiting and Abuse Protection
-
-Apply endpoint-sensitive controls.
-
-Examples:
-
-- authentication/activation attempts;
-- outlet lookup;
-- evidence initiation;
-- export creation;
-- geocoding/routing integrations;
-- AI analysis;
-- bulk operations.
-
-Rate limits may consider user, service identity, IP/device, workspace and endpoint.
-
-Do not rely solely on IP limits for authenticated abuse prevention.
-
-## 45. Evidence Security
+## 47. Evidence Security
 
 Evidence metadata and object access are authorised separately.
-
-A valid object-storage key does not grant access.
 
 Requirements:
 
 - no permanent public protected URLs;
-- short-lived signed URLs only after API authorisation where used;
-- content-type/size validation;
-- malware/file validation where applicable;
-- object ownership tied to authoritative evidence metadata;
-- export permission separate from ordinary viewing;
-- rights classification applied to evidence.
+- controlled upload target;
+- content type/size/integrity checks;
+- object ownership bound to Evidence record;
+- short-lived access after authorisation;
+- export permission separate from view;
+- rights classification enforced.
 
-## 46. Geospatial API Security
+## 48. Geospatial Security
 
-Geographic endpoints must not accidentally expose restricted client outlet datasets through map bounding-box queries.
+Every map/viewport request is protected.
 
-Every map/viewport request is still a protected query.
+A bounding box never becomes authority.
 
-Example:
+Server first resolves project/assignment scope, then executes bounded spatial query and filters fields/domains.
 
-```text
-GET /api/v1/projects/{projectId}/map/outlets?bbox=...
-```
+Future PostGIS adoption changes query engine, not authorisation.
 
-The API first resolves project/workspace access, then performs the bounded spatial query.
+## 49. Raw Movement Security
 
-Future PostGIS adoption changes the query engine, not the authorisation rule.
+Raw movement is purpose-limited and more sensitive than derived coverage.
 
-## 47. Service-to-Service Authentication
+A raw-movement access operation must specify:
 
-Background jobs, analytics, GIS services and AI services use explicit service identities.
+- permission;
+- legitimate operational/QA/security purpose;
+- project/worker/time bounds;
+- returned fields;
+- audit requirement;
+- retention implications.
 
-Service identities receive narrowly scoped capabilities rather than impersonating a super administrator.
+Client Viewer access to derived coverage never implies raw Movement Event access.
+
+## 50. Service-to-Service Identities
+
+Background workers use explicit scoped service identities.
 
 Examples:
 
-- QA AI: read assigned visit/evidence, create validation result;
-- export worker: read authorised export job scope, create output;
-- analytics publisher: read approved projection/events, write approved analytical sink;
-- market matching worker: read permitted candidate/reference fields, create match proposal.
+```text
+Coverage Processor:
+  read authorised movement batches/events
+  write traversal/derived coverage/exceptions
 
-## 48. AI Agent Authorisation
+QA Rule Engine:
+  read authorised submitted resources
+  write validation results/QA triggers
 
-AI is treated as a caller identity, not as a trusted omnipotent component.
+Integration Worker:
+  read authorised canonical visit projection
+  update integration job/attempt
 
-An AI agent receives only the minimum permissions and data needed for its function.
+Export Worker:
+  read approved export scope
+  write protected output
 
-AI recommendations that change rights, merge outlets, override QA, alter membership or perform other high-impact actions require explicit authorised workflow/human approval unless a later approved policy says otherwise.
+Market Matcher:
+  read permitted identity fields
+  create match proposal
+```
 
-Standing TES principle:
+None impersonates a super administrator.
+
+## 51. AI Agent Authorisation
+
+AI is a scoped caller identity, not a security bypass.
+
+AI may propose QA findings, outlet matches, opportunity priorities or recommendations only within granted data scope.
+
+High-impact rights changes, outlet merges, QA overrides, membership changes or coverage overrides require explicit authorised workflow unless a later approved policy safely delegates them.
+
+Standing principle:
 
 > **No autonomous agent receives simultaneous authority over code, production credentials and deployment.**
 
-## 49. Break-Glass Access
+## 52. Break-Glass Access
 
-Exceptional privileged access to restricted customer data requires:
+Exceptional restricted-data access requires reason, authorised actor, limited scope, expiry, audit and appropriate post-event review.
 
-- explicit reason;
-- authorised actor;
-- temporary elevation;
-- limited scope;
-- expiry;
-- audit event;
-- post-event review where appropriate.
+Break-glass is not routine support access.
 
-Break-glass must not become a routine support mechanism.
-
-## 50. Audit Requirements by Operation
+## 53. Logging & Audit
 
 Always audit at minimum:
 
-- workspace membership changes;
-- role/permission changes;
-- project archive/critical lifecycle changes;
+- membership/permission changes;
+- project critical lifecycle changes;
 - survey publication;
-- visit reopen after submission;
+- visit reopen/correction after submission;
 - QA override;
-- data export/bulk download;
-- evidence bulk export;
-- Market Universe promotion;
-- outlet merge;
-- data-right classification change;
-- break-glass access;
+- coverage verification/override;
+- raw movement privileged access where policy requires;
+- export/bulk download;
+- Market Universe promotion/merge;
+- data-right changes;
+- integration configuration/activation;
+- break-glass;
 - denied privileged attempts;
-- service identity/security configuration changes.
+- service identity/security configuration.
 
-Audit events record actor, action, resource, scope, outcome, timestamp and request ID without unnecessarily duplicating sensitive payloads.
+Operational logs must not contain authentication tokens, secrets or unnecessary client-sensitive payloads.
 
-## 51. Logging vs Auditing
+## 54. CORS / Browser / App Check
 
-Operational logs and audit records serve different purposes.
+Use HTTPS, controlled origins, secure cookies if applicable, CSRF protection for cookie-authenticated mutations, restrictive credentialed CORS and appropriate security headers/CSP.
 
-**Logs** support debugging/performance/operations and may be retained for shorter periods.
+CORS is not authorisation.
 
-**Audit records** prove significant actions/security decisions and require stronger integrity/retention controls.
+Firebase App Check may be used as an abuse-control signal but never replaces identity/resource authorisation.
 
-Do not place authentication tokens, passwords, secrets or unnecessary client-sensitive payloads into logs.
+## 55. Secrets
 
-## 52. CORS and Browser Security
+Secrets belong in approved environment/secret management and are separated by environment.
 
-Production API origins must be explicitly controlled.
+Never store production credentials, Firebase Admin credentials, signing secrets, GIS keys, AI keys, SMS/email credentials or Premier/client tokens in source or ordinary API configuration documents.
 
-Use appropriate protections including:
-
-- HTTPS only;
-- secure cookie settings if server sessions are used;
-- CSRF protection for cookie-authenticated state-changing requests;
-- restrictive CORS rather than wildcard credentialed access;
-- security headers;
-- content-security policy appropriate to the application;
-- upload/content controls.
-
-CORS is not authorisation; direct non-browser calls must still be securely denied when unauthorised.
-
-## 53. Firebase App Check
-
-App Check may be used as an additional abuse-control signal for supported clients.
-
-It does not replace authentication or API authorisation.
-
-A valid App Check assertion means the request likely came from an expected application environment; it does not prove the user may access a workspace/resource.
-
-## 54. Secrets and Configuration
-
-Secrets live in environment/secret management, never GitHub source.
-
-Examples:
-
-- Firebase Admin credentials;
-- database credentials;
-- signing secrets;
-- third-party GIS/geocoding keys;
-- AI provider keys;
-- email/SMS credentials;
-- service credentials.
-
-Production and non-production secrets are separated.
-
-## 55. API Dependency Abstraction
-
-External services are accessed through internal provider interfaces where practical.
-
-Examples:
-
-```text
-Geocoder
-MapProvider
-ObjectStorage
-NotificationProvider
-AIAnalysisProvider
-AnalyticsPublisher
-```
-
-This prevents application endpoints from becoming tightly coupled to provider-specific contracts.
-
-## 56. Database Abstraction
-
-API/domain services must not expose Firestore document semantics to the frontend.
-
-Conceptually:
+## 56. Provider & Persistence Abstraction
 
 ```text
 API Controller
@@ -971,154 +894,207 @@ Application Service
     |
 Domain / Policy
     |
-Repository Interface
+Repository / Provider Interfaces
     |
-+---+----------------+
-|                    |
-Firestore          PostgreSQL/PostGIS
-MVP                Target
++---+-----------------------+
+|                           |
+Firestore MVP        PostgreSQL/PostGIS target
 ```
 
-This is essential to the planned Firebase-to-PostGIS evolution.
+Provider interfaces should similarly isolate geocoder, map provider, object storage, notifications, integrations and analytics.
 
-## 57. API Security Test Matrix
+## 57. Rate & Abuse Controls
 
-Before production, automated/integration tests must prove at minimum:
+Endpoint-sensitive limits may consider user/service identity, workspace, device, IP and endpoint.
 
-1. no token -> protected endpoint denied;
-2. invalid/expired token -> denied;
-3. suspended Survey Guru user -> denied;
-4. valid user without workspace membership -> denied;
-5. valid user in Workspace A cannot retrieve Workspace B resource by guessed ID;
-6. valid user cannot change request `workspaceId` to cross boundary;
-7. Field Worker cannot enumerate project-wide assignments;
-8. Field Worker cannot retrieve another worker's visit;
-9. Field Worker cannot submit another `fieldWorkerId` to take ownership;
-10. client role cannot retrieve internal QA-only fields;
-11. Analyst read permission does not permit export;
-12. workspace permission does not grant Market Universe permission;
-13. data-right value in client payload cannot upgrade usage rights;
-14. ordinary user cannot approve Market Universe promotion;
-15. published survey version cannot be mutated;
-16. evidence object cannot be accessed by guessing storage key;
-17. signed evidence access expires;
-18. hidden/disabled UI controls can be manually invoked without gaining authority;
-19. mass-assignment fields are rejected/ignored safely;
-20. invalid state transition returns safe error;
-21. repeated idempotent submission does not duplicate business action;
-22. revoked assignment fails subsequent offline sync where no longer permitted;
-23. export cannot request unauthorised fields;
-24. bulk operation cannot exceed caller scope;
-25. service/AI identity cannot call outside its granted permissions;
-26. privileged action creates audit event;
-27. cross-workspace probing does not leak sensitive existence/details through errors;
-28. direct Firestore/Storage access remains denied for protected data.
+Particularly protect authentication/activation, outlet matching, movement ingestion, evidence initiation, export, integration retries, geocoding/routing and AI analysis.
 
-## 58. Security Review Gate
+Movement limits must allow legitimate offline batch catch-up without enabling unbounded payload abuse.
 
-No new API endpoint handling protected data is production-ready until its implementation specifies:
+## 58. API Security Test Matrix v1.1
+
+Before production, prove at minimum:
+
+1. no/invalid/expired token denied;
+2. suspended user denied;
+3. user without workspace membership denied;
+4. Workspace A user cannot retrieve Workspace B resource by guessed ID;
+5. changing client `workspaceId/projectId/fieldWorkerId` cannot cross scope;
+6. Field Worker cannot enumerate project-wide assignments;
+7. Field Worker cannot retrieve another worker's Visit/Search Session;
+8. Field Worker cannot create Search Session for another Assignment;
+9. Field Worker cannot submit another worker's Movement Batch;
+10. client-submitted street match/coverage percent/state is ignored/rejected;
+11. Field Worker cannot set `COVERED` or `VERIFIED` directly;
+12. crossing/nearby side street cannot be forced covered by payload;
+13. duplicate Movement Batch is idempotent;
+14. oversized/invalid movement batch safely rejected;
+15. offline sync after authority change follows historical-authority policy and cannot escalate scope;
+16. assignment package excludes unrelated Market Universe/client data;
+17. raw movement unavailable through ordinary coverage endpoints;
+18. raw movement privileged access is bounded and authorised;
+19. Field Worker cannot silently merge outlet candidates;
+20. client cannot upgrade data-right classification;
+21. workspace permission does not grant Market Universe permission;
+22. published Survey Version cannot be mutated;
+23. evidence cannot be accessed by guessed object key;
+24. signed evidence access expires;
+25. BLOCK validation cannot be bypassed by direct endpoint invocation;
+26. client cannot downgrade validation severity;
+27. QA user cannot act outside assigned/project scope;
+28. ordinary QA user cannot perform stronger override without permission;
+29. correction cannot overwrite historical accepted values without lineage;
+30. revisit creates linked new Visit rather than replacing original;
+31. Survey Guru Visit remains accepted if Premier integration fails;
+32. integration job cannot be marked SYNCED without authoritative adapter confirmation;
+33. repeated integration retry is idempotent;
+34. Analyst read permission does not grant export;
+35. export cannot request hidden/unauthorised fields;
+36. cross-workspace spatial bbox cannot leak outlets/coverage;
+37. service/AI identity cannot call outside granted scope;
+38. mass-assignment security fields rejected;
+39. stale high-impact update returns conflict;
+40. privileged action creates audit event;
+41. hidden/disabled UI control invocation grants no additional authority;
+42. direct Firestore/Storage protected access remains denied.
+
+## 59. Endpoint Production Gate
+
+No protected endpoint is production-ready until documented with:
 
 ```text
 Authentication requirement
 Required permission(s)
-Resource scope
-Workspace/project/assignment resolution
-Data-right policy
-Writable/readable fields
+Resource resolution sequence
+Workspace/project/assignment scope
+Data-domain and rights policy
+Readable fields
+Writable fields
+Lifecycle/state rules
 Validation rules
-Rate/abuse limits where needed
+Idempotency
+Concurrency/version behaviour
+Rate/payload limits
 Audit requirement
-Idempotency requirement
 Error behaviour
 Security tests
 ```
 
-This checklist should become part of code review and autonomous-agent development mandates.
+This checklist applies equally to human-written and autonomous-agent-generated endpoints.
 
-## 59. API Implementation Build Order
+## 60. Implementation Build Order v1.1
 
 ### Foundation
 1. `/api/v1` structure
-2. token/session verification
+2. authentication/session verification
 3. user-status resolver
 4. request/correlation ID
-5. standard error envelope
-6. schema validation framework
+5. error envelope
+6. schema validation
+7. idempotency utility
 
 ### Authorisation Core
-7. workspace membership resolver
-8. permission resolver
-9. project-scope resolver
-10. assignment-scope resolver
-11. data-right policy resolver
-12. reusable `authorize()` policy layer
-13. audit writer
+8. workspace membership resolver
+9. permission resolver
+10. project resolver
+11. assignment/resource resolver
+12. data-right policy
+13. reusable authorisation layer
+14. audit writer
+15. concurrency/version utility
 
-### Operational APIs
-14. identity/context
-15. workspaces/memberships
-16. projects
-17. survey definitions/versioning
-18. field workers
-19. assignments
-20. workspace outlets
-21. visits/responses
-22. evidence
-23. validation/QA
-24. coverage
+### Field MVP
+16. identity/context
+17. project/survey reads
+18. assignment APIs
+19. assignment package
+20. outlet candidate/matching gate
+21. visits/responses/response rows
+22. evidence upload/access
+23. search sessions
+24. movement batch ingestion
+25. field coverage reads
+26. offline sync/reconciliation
 
-### Privileged / Intelligence APIs
-25. Market Universe lookup
-26. promotion workflow
-27. reports/exports
-28. bulk operations
-29. service/AI identities
+### Management / QA
+27. supervisor coverage/map/summary
+28. coverage exceptions
+29. validation results
+30. QA queue/work items
+31. corrections/revisits
+32. coverage verification/override
+
+### Integration / Intelligence
+33. Market Universe promotion/identity administration
+34. Premier/client integration jobs
+35. reports/exports
+36. service/AI identities
 
 ### Production Gate
-30. rate limiting
-31. security test suite
-32. direct Firestore/Storage denial tests
-33. audit verification
-34. load/performance testing
-35. incident/logging readiness
+37. rate/abuse limits
+38. direct API bypass security suite
+39. Firestore/Storage denial tests
+40. audit verification
+41. field/offline load tests
+42. movement cost/performance tests
+43. incident/logging readiness
 
-## 60. Locked API & Authorisation Decisions
+## 61. Locked API & Authorisation Decisions v1.1
 
 1. API/backend is Survey Guru's primary application security boundary.
 2. UI controls never grant authority.
 3. Protected business data is API-only by default.
-4. Firebase Authentication establishes identity, not workspace authority.
-5. Authoritative memberships/permissions are server-loaded.
-6. Every protected resource is resolved server-side before authorisation.
-7. Workspace isolation is enforced in backend queries and resource checks.
-8. Project and assignment scope are independent access dimensions.
-9. Field Worker access is assignment-centric.
-10. Market Universe permissions are separate from workspace permissions.
-11. Data-right classifications are enforced server-side.
-12. API responses are field-minimised by role/purpose.
-13. Client-supplied security/scope fields are never trusted as authority.
-14. Writes use explicit field allowlists.
-15. Published survey versions are immutable.
-16. Evidence access requires API authorisation; object keys are not credentials.
-17. Export is separately permissioned and audited.
-18. Bulk operations are explicitly designed, bounded and audited.
-19. Offline sync is reauthorised when it reaches the server.
-20. Idempotency is required for retry-prone business operations.
-21. External/service/AI callers use scoped service identities.
-22. AI is not a privileged bypass around normal security.
-23. Firestore implementation details do not leak into the public application contract.
-24. The API must survive migration from Firestore to PostgreSQL/PostGIS without changing core authorisation principles.
-25. Security acceptance tests include direct endpoint invocation with the UI completely bypassed.
-26. No autonomous agent receives simultaneous authority over code, production credentials and deployment.
+4. Firebase Authentication establishes identity, not business authority.
+5. Memberships/permissions/resource relationships are server-loaded.
+6. Protected resources are resource-first authorised.
+7. Workspace, project, assignment, domain and rights scopes are independently enforced.
+8. Field Worker access is assignment-centric.
+9. Assignment package is minimum-data and never a convenient Market Universe dump.
+10. Search Session scopes legitimate field search activity.
+11. Movement Batch submission is worker/session scoped and idempotent.
+12. Movement Events are evidence; clients cannot submit authoritative coverage truth.
+13. Authoritative coverage is server-derived.
+14. Field Workers cannot set VERIFIED.
+15. Raw movement is more restricted than derived coverage.
+16. Live field coverage is assignment-bounded and versioned for reconciliation.
+17. Supervisor map queries are project/viewport bounded.
+18. Searched-zero-found is server-derived and cannot be set directly.
+19. Validation severity is server-controlled.
+20. BLOCK validation cannot be bypassed by UI manipulation.
+21. QA corrections preserve revision lineage.
+22. Revisit creates a new linked Visit.
+23. Outlet identity matching never silently merges permanent outlets.
+24. Workspace Outlet and Market Outlet authority remain separated.
+25. Data-right promotion is explicit and audited.
+26. Survey Guru acceptance and third-party integration state are independent.
+27. Premier WTS SYNCED requires confirmed final Submit Surveys success.
+28. Integration retries are idempotent and scoped.
+29. Evidence object keys are never access credentials.
+30. Export is separately permissioned and audited.
+31. Offline operations are reauthorised/revalidated on sync using historical authority and capture context where applicable.
+32. Partial sync results are explicit per operation.
+33. Writes use explicit field allowlists.
+34. High-impact mutable actions use optimistic concurrency.
+35. Spatial bounding boxes are query constraints, never authority.
+36. Service/AI identities are explicitly scoped.
+37. Firestore semantics do not leak into public API contracts.
+38. API authorisation survives migration to PostgreSQL/PostGIS.
+39. Security tests bypass the UI and directly attack protected endpoints.
+40. No autonomous agent receives simultaneous authority over code, production credentials and deployment.
 
-## 61. Next Specification
+## 62. Required Follow-On Alignment
 
-With the data model, persistence boundary and API security architecture established, the next implementation document should be:
+This v1.1 update should be reflected next in:
 
-**Survey Guru MVP Functional Specification v1.0**
+- `SCREEN-NAVIGATION-ARCHITECTURE.md` — live field/supervisor coverage, QA, correction, integration and sync surfaces;
+- future PostgreSQL/PostGIS Logical Schema;
+- future Import & Export Specification;
+- implementation endpoint contracts as development begins.
 
-It will define exactly what the first usable Survey Guru release does for administrators, project managers, field workers, QA users and client viewers, including project setup, questionnaire configuration, territory assignment, field capture, outlet handling, coverage, QA, dashboarding and exports.
+The next highest-value architecture update is **Screen & Navigation Architecture v1.1**, because the backend capabilities and security boundaries are now sufficiently locked to define exactly what each role sees and how the field/supervisor workflows expose coverage, QA and sync without confusing UI visibility with authority.
 
 ---
 
-This is a living TES architecture specification. Material changes must be version-controlled in the Survey Guru repository.
+## Living Documentation Rule
+
+This is a living TES architecture specification. Material changes affecting endpoints, authorisation, coverage, offline sync, movement, QA, outlet identity, integrations, rights, security, exports or service/AI authority must be version-controlled here and in other materially affected Survey Guru/TES documents rather than remaining only in chat or informal notes.
