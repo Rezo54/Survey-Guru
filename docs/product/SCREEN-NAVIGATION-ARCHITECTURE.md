@@ -1,35 +1,22 @@
-# Survey Guru Screen & Navigation Architecture v1.0
+# Survey Guru Screen & Navigation Architecture v1.1
 
 **Product Owner:** TES — Task Expert Systems  
 **Operational / Field Partner:** Taskraft (Pty) Ltd  
 **Status:** MVP Product Design Baseline / Living Document  
-**Version:** 1.0  
-**Date:** 7 September 2026
+**Version:** 1.1  
+**Updated:** 9 September 2026
 
 ## 1. Purpose
 
-This document translates the Survey Guru MVP Functional Specification into the concrete application structure users will navigate.
+This document translates the Survey Guru MVP Functional Specification, Coverage Model, Field Capture & Offline Workflow, QA rules and API/Authorisation v1.1 into the concrete application structure users navigate.
 
-It defines:
+It defines management and field surfaces, live street coverage, screen responsibilities, QA/correction workflows, offline/sync states, third-party integration status and role-aware navigation.
 
-- management application information architecture;
-- field-worker PWA architecture;
-- project-level navigation;
-- map-centred workflows;
-- screen responsibilities;
-- primary actions;
-- role-aware UX;
-- responsive behaviour;
-- status and notification patterns;
-- navigation rules that preserve the strict API security architecture.
+> **Navigation controls what a user sees conveniently. The API/backend controls what the user is actually allowed to do.**
 
-> **Navigation controls what a user sees conveniently. The API/backend controls what a user is actually allowed to do.**
-
-The screen architecture must therefore never become a substitute for authorisation.
+Hidden screens/buttons/routes are UX only and never security boundaries.
 
 ## 2. Product Surfaces
-
-Survey Guru MVP has two deliberately different product surfaces sharing the same backend/domain model.
 
 ```text
                      SURVEY GURU
@@ -37,64 +24,53 @@ Survey Guru MVP has two deliberately different product surfaces sharing the same
              +------------+------------+
              |                         |
              v                         v
-      MANAGEMENT WEB APP          FIELD WORKER PWA
+      MANAGEMENT WEB APP          FIELD WORKER APP
       Desktop / Tablet            Mobile First
              |                         |
       Project control              Today's work
-      Maps / Coverage              Assignments
-      QA / Reporting              Map / Capture
-      Administration              Offline / Sync
+      Live Coverage                Live Street Map
+      QA / Reporting              Capture / Corrections
+      Integrations                 Offline / Sync
+      Administration              Search Sessions
 ```
 
-The Field Worker PWA must not simply be a compressed version of the management application.
+The field application is task-focused, not a compressed management application.
 
-## 3. Design Principle — Role-Driven Complexity
+The production mobile shell remains subject to the PWA/background-location architecture gate: if target Android testing shows browser/PWA limitations materially compromise credible movement evidence, TES must use appropriate native/hybrid capability rather than weaken coverage requirements.
 
-Management users need breadth and comparison.
+## 3. UX Principles
 
-Field Workers need focus and speed.
+1. Management is information-rich; field is task-rich.
+2. The Live Street Coverage Map is a first-class MVP screen.
+3. Outlet result and geographic search completeness are displayed separately.
+4. Offline/local and server-authoritative states are visibly different.
+5. Coverage uses state plus labels/patterns, not colour alone.
+6. Raw movement is not an ordinary management UI layer.
+7. QA is exception-focused and high-throughput.
+8. Every metric should drill into an operational action where practical.
+9. Integration state never obscures Survey Guru's canonical Visit state.
+10. UI visibility never grants authority.
 
-Therefore:
+## 4. Management Shell
 
-> **Management navigation is information-rich. Field navigation is task-rich.**
-
-A surveyor standing outside a store should never need to understand the entire Survey Guru hierarchy to complete a visit.
-
-## 4. Global Management Shell
-
-Desktop layout:
+Desktop shell:
 
 ```text
 +-------------------------------------------------------------------+
 | Survey Guru | Workspace | Search | Notifications | User           |
 +--------------+----------------------------------------------------+
-|              |                                                    |
 | Dashboard    |                                                    |
 | Projects     |                                                    |
-| Map          |                 MAIN CONTENT                       |
+| Map & Cov.   |                 MAIN CONTENT                       |
 | Field Team   |                                                    |
 | QA           |                                                    |
 | Outlets      |                                                    |
 | Reports      |                                                    |
 | Admin        |                                                    |
-|              |                                                    |
 +--------------+----------------------------------------------------+
 ```
 
-Primary shell components:
-
-- persistent left navigation on desktop;
-- top application bar;
-- workspace selector;
-- global search;
-- notifications;
-- user/profile menu;
-- contextual breadcrumbs where useful;
-- main content area.
-
-## 5. Management Primary Navigation
-
-Recommended top-level navigation:
+Top-level navigation:
 
 ```text
 Dashboard
@@ -107,191 +83,71 @@ Reports
 Administration
 ```
 
-Items appear according to UX permissions/context but API authorisation is always independently enforced.
+## 5. Workspace Context
 
-## 6. Workspace Selector
+Workspace selector returns only authorised workspaces. Switching workspace clears project-specific UI context and reloads authorised counts/data.
 
-Location: top application bar.
+Global search may include project, outlet, client reference, Field Worker, assignment and Visit. Search is security-scoped server-side.
 
-Display:
+Notifications include correction/revisit requests, assignment changes, project lifecycle, QA backlog, coverage exceptions, sync failures, integration failures/interface updates, import/export completion and other actionable events.
 
-```text
-Premier WTS Workspace   v
-```
+## 6. Workspace Dashboard
 
-Selecting it shows only authorised workspaces.
-
-Switching workspace:
-
-- clears project-specific UI context;
-- reloads workspace-scoped navigation counts;
-- reloads authorised dashboard data;
-- does not carry filters from another workspace where this could cause confusion;
-- does not imply new authority.
-
-Users with one workspace may see its name without a selector.
-
-## 7. Global Search
-
-Search icon/input in management header.
-
-Initial searchable entities:
-
-- project name/code;
-- outlet name;
-- client customer code;
-- Field Worker;
-- assignment reference;
-- visit reference.
-
-Results are grouped by entity type and security-scoped before being returned.
-
-Example:
-
-```text
-Search: Shop ABC
-
-OUTLETS
-Shop ABC — Soweto
-Shop ABC Supermarket — Diepsloot
-
-VISITS
-Shop ABC — 05 Sep 2026 — Accepted
-```
-
-## 8. Notifications Centre
-
-Header bell with unread count.
-
-MVP notification types:
-
-- visit returned for correction;
-- assignment reassigned;
-- project activated/paused;
-- QA backlog warning;
-- import completed/failed;
-- export completed/failed;
-- important sync/operational exception where relevant.
-
-Clicking a notification deep-links to the authorised resource.
-
-## 9. Management Dashboard
-
-Route concept:
-
-`/dashboard`
+Route: `/dashboard`
 
 Purpose:
 
-> **Tell the user what requires attention across the current workspace.**
+> **Tell the user what requires attention across the authorised workspace.**
 
-Recommended layout:
-
-```text
-Workspace Dashboard
-
-[Active Projects] [Today's Visits] [Awaiting QA] [Coverage]
-
-Attention Required
--------------------------------------------------------
-Mahikeng WTS      Behind plan       View Project
-Nelspruit WTS     84 QA pending     Open QA
-Zone 14           Low coverage      View Map
-
-Active Projects
--------------------------------------------------------
-Project          Progress       Coverage       QA
-Mahikeng         68%            61%            32
-Nelspruit        42%            38%            84
-
-Recent Activity
--------------------------------------------------------
-...
-```
-
-Do not overload the workspace dashboard with detailed analytics that belong inside projects.
-
-## 10. Projects Screen
-
-Route:
-
-`/projects`
-
-Functions:
-
-- browse projects;
-- filter/sort;
-- create project;
-- open project;
-- identify projects needing attention.
-
-Recommended desktop presentation: table/cards toggle if useful, with table as operational default.
-
-Columns:
+Core cards should separate operational dimensions:
 
 ```text
-Project
-Market / Geography
-Status
-Dates
-Target
-Accepted
-Progress
-Coverage
-Field Workers
-QA Pending
+[Active Projects]
+[Today's Accepted Visits]
+[Awaiting QA]
+[Street Coverage]
+[Outstanding Coverage]
+[Sync / Integration Attention]
 ```
 
-Primary action:
+Project table example:
 
-`+ New Project`
+```text
+Project       Outlet Progress   Street Coverage   QA   Attention
+Mahikeng      68%               61%               32   Behind coverage
+Nelspruit     42%               38%               84   QA backlog
+```
 
-## 11. New Project Wizard
+Do not present one blended percentage implying outlets captured equals area searched.
 
-Route:
+## 7. Projects & New Project Wizard
 
-`/projects/new`
+Routes: `/projects`, `/projects/new`
 
-Stepper:
+Project list columns:
+
+```text
+Project | Geography | Status | Dates | Outlet Target | Accepted | Street Coverage | Field Workers | QA
+```
+
+New Project stepper:
 
 ```text
 1 Project
 2 Survey
-3 Geography
+3 Geography & Coverage Mode
 4 Field Team
 5 Assignments
 6 Review
 ```
 
-Persistent controls:
+Geography step defines boundary/zones and relevant coverage mode/policy configuration. Activation is blocked until required configuration passes validation.
 
-`Back` | `Save Draft` | `Continue`
+## 8. Project Command Centre
 
-Final step:
+Route: `/projects/{projectId}`
 
-`Activate Project`
-
-Activation is disabled until required configuration passes validation.
-
-## 12. Project Command Centre
-
-Route:
-
-`/projects/{projectId}`
-
-Every project opens into a project-specific shell.
-
-Header:
-
-```text
-Mahikeng WTS — September 2026
-ACTIVE
-Premier | Mahikeng | 1 Sep - 15 Oct
-
-[Pause Project] [...] 
-```
-
-Project tabs:
+Tabs:
 
 ```text
 Overview
@@ -306,169 +162,177 @@ Reports
 Settings
 ```
 
-This is the primary operational workspace for Project Managers/Supervisors.
+Settings contains authorised project configuration, coverage policy references and integration linkage where applicable.
 
-## 13. Project Overview
+## 9. Project Overview
 
-Route:
+Route: `/projects/{projectId}/overview`
 
-`/projects/{projectId}/overview`
-
-Layout priority:
-
-### Row 1 — Core KPIs
+Primary KPIs:
 
 ```text
-[Target]
+[Outlet Target]
 [Captured]
 [Accepted]
-[Coverage]
+[Street Network Coverage]
+[Outstanding Street Length]
 [QA Pending]
 ```
 
-### Row 2 — Progress
+Coverage wording should be precise, e.g.:
 
-Target vs actual trajectory chart and simple expected-to-date comparison.
+> **94.7% of the eligible assigned street network has sufficient search-coverage evidence under the active project coverage policy.**
 
-### Row 3 — Operational Attention
+Operational attention includes workers/assignments with no activity, uncovered required streets, coverage holes/exceptions, partial streets, sync backlog, corrections, duplicate candidates, QA backlog and integration failures.
 
-Examples:
+## 10. Project Map & Coverage — Core MVP Screen
 
-- workers with no submissions today;
-- zones not started;
-- high QA rejection;
-- sync backlog;
-- duplicate candidates;
-- project behind plan.
-
-### Row 4 — Map Preview
-
-Compact project map linking to full Map & Coverage screen.
-
-### Row 5 — Recent Activity
-
-Latest submissions/QA/corrections.
-
-## 14. Project Map & Coverage
-
-Route:
-
-`/projects/{projectId}/map`
-
-This is one of Survey Guru's core screens.
-
-Desktop layout:
+Route: `/projects/{projectId}/map`
 
 ```text
-+---------------------------------------------------------------+
-| Filters / Date / Worker / Zone / Layer controls              |
-+------------------------------------------+--------------------+
-|                                          |                    |
-|                                          |  Context Panel     |
-|                 MAP                      |                    |
-|                                          |  Selected Zone     |
-|                                          |  Coverage          |
-|                                          |  Outlets           |
-|                                          |  Actions           |
-|                                          |                    |
-+------------------------------------------+--------------------+
++------------------------------------------------------------------+
+| Worker | Zone | Coverage State | QA | Layers | View Outstanding |
++---------------------------------------------+--------------------+
+|                                             | Context Panel      |
+|                  LIVE MAP                   |                    |
+|                                             | Selected street/   |
+|                                             | cell/outlet/zone   |
+|                                             | evidence summary   |
++---------------------------------------------+--------------------+
 ```
 
-## 15. Map Layers
+This screen must make geographic holes obvious. Surrounding coverage must never visually imply an untraversed side street is complete.
 
-Layer control supports:
+## 11. Management Map Layers
+
+Authorised layer set may include:
 
 ```text
 Project Boundary
 Operational Zones
-Coverage Cells
+Eligible Street Network
+Covered Streets
+Partially Covered Streets
+Uncovered Streets
+Verified Streets
+Coverage Cells / H3
 Known / Seed Outlets
 Newly Discovered Outlets
 Accepted Outlets
 Duplicate Candidates
 QA Flags
-Field Activity / Search Evidence
+Coverage Exceptions
+Deterministic Priority Areas
 ```
 
-Only authorised layers/data are returned by API.
-
-## 16. Map Status Visual Language
-
-Coverage must be understandable without relying only on colour.
-
-States:
+Optional authorised operational layer:
 
 ```text
-Unvisited
-In Progress
-Searched
-Verified
+Team Coverage Contribution
 ```
 
-Use colour plus pattern/icon/label in legends and selected-cell details.
+Raw GPS breadcrumb history is **not** a normal layer. Privileged investigation uses a purpose-specific workflow.
 
-Outlet markers should distinguish at minimum:
+## 12. Coverage Visual Language
+
+Street states:
 
 ```text
-Known / Seed
-New Candidate
-Accepted
-QA Required
-Duplicate Candidate
-Closed / Inactive where applicable
+UNCOVERED
+PARTIALLY COVERED
+COVERED
+VERIFIED
 ```
 
-Exact visual colours belong to the later design system, not this architecture specification.
-
-## 17. Map Selection Panel
-
-Selecting a zone/cell/outlet opens a side panel rather than immediately navigating away.
-
-Coverage cell example:
+Area/cell states:
 
 ```text
-Zone 14 / Cell 8A23
-Status: Searched
-Last searched: Today 14:32
-Search effort: 46 min
-Workers: 2
-Outlets discovered: 7
-Visits: 8
-
-[View Activity]
+UNVISITED
+IN PROGRESS
+SEARCHED
+VERIFIED
 ```
 
-Outlet example:
+Outcome badges separately show:
 
 ```text
-Shop ABC
-Accepted
-Last visit: Today 13:45
-Worker: ...
-
-[Open Outlet]
-[Open Visit]
+SEARCHED — ZERO OUTLETS FOUND
+SEARCHED — OUTLETS FOUND
 ```
 
-## 18. Assignments Screen
+Confidence is separate from state and may appear as `High / Medium / Low` or a detailed authorised indicator.
 
-Route:
+Never use colour alone; use line treatment/pattern/icon/text legend.
 
-`/projects/{projectId}/assignments`
+## 13. View Outstanding
 
-Views:
+`View Outstanding` is a first-class action on project and field coverage screens.
 
-- list/table;
-- optional map allocation view.
+Management view filters/highlights:
 
-Filters:
+- uncovered required streets;
+- partially covered streets;
+- unresolved coverage exceptions;
+- incomplete cells/areas;
+- coverage gaps created by reassignment/reconciliation;
+- informal/unmapped areas still requiring search.
 
-- worker;
-- assignment type;
-- zone;
-- scheduled date;
-- status;
-- priority.
+It can lead directly to assignment/reassignment where authorised.
+
+## 14. Map Selection Panel
+
+Street example:
+
+```text
+Mahlangu Street / Segment SG-ST-...
+PARTIALLY COVERED
+Supported: 68%
+Confidence: Medium
+Outstanding: 124 m
+Last evidence: Today 14:32
+Contributors: 2
+Outlets found: 3
+
+[View Outstanding Portion]
+[View Exceptions]
+[Create / Reassign Work]
+```
+
+Cell example:
+
+```text
+Cell 8A23
+SEARCHED — ZERO OUTLETS FOUND
+Coverage: 100%
+Confidence: High
+Last evidence: Today 14:32
+```
+
+Outlet example opens Outlet/Visit actions.
+
+## 15. Coverage Exceptions
+
+Project map and QA can expose exceptions such as:
+
+```text
+GPS Jump
+Low Accuracy
+Parallel Street Ambiguity
+Insufficient Traversal
+Coverage Hole
+Duplicate Batch
+Device Conflict
+```
+
+These are QA/processing signals, not accusations of misconduct.
+
+The UI should explain what evidence is insufficient and what operational action is needed where possible.
+
+## 16. Assignments
+
+Route: `/projects/{projectId}/assignments`
+
+List and optional map allocation views. Filters include worker, type, zone, date, status, priority and coverage completeness.
 
 Primary actions:
 
@@ -476,57 +340,18 @@ Primary actions:
 + Create Assignment
 Bulk Assign
 Reassign Selected
+View Outstanding Coverage
 ```
 
-## 19. Assignment Detail
+Assignment Detail shows target geography/outlet, worker, instructions, lifecycle, associated Visits/Search Sessions, coverage progress, sync status and reassignment history.
 
-Route:
+Reassignment preserves prior valid coverage and makes remaining work clear.
 
-`/assignments/{assignmentId}`
+## 17. Field Workers — Management
 
-Display:
+Route: `/projects/{projectId}/field-workers`
 
-- type;
-- worker;
-- project;
-- zone/outlet target;
-- schedule/due date;
-- instructions;
-- lifecycle/status history;
-- associated visit(s);
-- relevant map context;
-- reassignment/cancellation actions if authorised.
-
-## 20. Bulk Assignment Workspace
-
-A focused workflow rather than a generic database bulk editor.
-
-Suggested layout:
-
-```text
-Unassigned Zones / Outlets        Field Workers
---------------------------        ------------------
-Zone A                            Worker 1
-Zone B                            Worker 2
-Zone C                            Worker 3
-
-Allocation Preview
----------------------------------------------------
-Zone A -> Worker 1
-Zone B -> Worker 2
-
-[Confirm Assignments]
-```
-
-Future optimisation may recommend allocation; MVP allows human-controlled deterministic assignment.
-
-## 21. Project Field Workers
-
-Route:
-
-`/projects/{projectId}/field-workers`
-
-Display:
+Columns:
 
 ```text
 Worker
@@ -537,88 +362,26 @@ Submitted
 Accepted
 Returned
 Last Activity
-Coverage Contribution
+Street Coverage Contribution
+Outstanding Work
+Sync Attention
 ```
 
-Selecting worker opens project-specific worker panel/detail.
+Worker detail remains operational, not an HR personnel file.
 
-## 22. Field Worker Project Detail
+Management normally sees derived coverage contribution and operational activity summaries, not unrestricted raw movement trails.
 
-Show only operationally relevant information:
+## 18. Outlets & Permanent Identity
 
-- participation status;
-- assignments;
-- submissions;
-- accepted/returned work;
-- correction backlog;
-- daily activity summary;
-- coverage contribution;
-- configured quality indicators.
-
-Avoid turning this screen into an HR personnel file.
-
-## 23. Project Outlets
-
-Route:
-
-`/projects/{projectId}/outlets`
-
-Display:
+Routes:
 
 ```text
-Outlet
-Reference
-Area / Zone
-Source
-Status
-Last Visit
-QA
-Match Status
+/projects/{projectId}/outlets
+/outlets
+/outlets/{workspaceOutletId}
 ```
 
-Filters:
-
-- known vs discovered;
-- zone;
-- status;
-- QA;
-- duplicate/match state;
-- outlet type.
-
-Actions:
-
-- open outlet;
-- open latest visit;
-- review match;
-- export if authorised.
-
-## 24. Workspace Outlet Registry
-
-Top-level route:
-
-`/outlets`
-
-Purpose: longitudinal outlet search beyond one project.
-
-Search/filter by:
-
-- outlet name;
-- customer code;
-- geography;
-- type;
-- status;
-- last observed;
-- match state.
-
-This screen displays workspace-authorised outlet knowledge, not automatically the entire TES Market Universe.
-
-## 25. Outlet Detail
-
-Route:
-
-`/outlets/{workspaceOutletId}`
-
-Recommended tabs:
+Outlet Detail tabs:
 
 ```text
 Overview
@@ -628,277 +391,194 @@ Client References
 Match / Identity
 ```
 
-Overview:
+The UI reinforces:
 
-- stable outlet name/reference;
-- map/location;
-- status;
-- type;
-- first/last observed;
-- latest accepted visit summary;
-- aliases where permitted;
-- Market Universe link state where authorised.
+> **Outlet persists; Visits accumulate.**
 
-## 26. Outlet Visit History
+Workspace Outlet Registry is not automatically the TES Market Universe.
 
-Timeline presentation:
+## 19. Match / Identity Review
 
-```text
-07 Sep 2026
-Mahikeng WTS
-Accepted
-[Open Visit]
-
-28 Aug 2026
-Verification Project
-Accepted
-[Open Visit]
-```
-
-This visually reinforces the core architecture:
-
-> **Outlet persists; visits accumulate.**
-
-## 27. Match / Identity Screen
-
-Used for duplicate resolution and Market Universe linkage where authorised.
-
-Layout:
-
-```text
-CURRENT WORKSPACE OUTLET        POSSIBLE MATCH
-Shop ABC                        Shop ABC Supermarket
-GPS ...                         GPS ...
-Photo                           Photo
-Client ref ...                  Known aliases ...
-
-Distance: 7m
-Name similarity: High
-Rule confidence: 94%
-
-[Link Existing]
-[Not Same]
-[Needs Review]
-```
-
-If rights permit creation of a Market Universe outlet, that action appears only to appropriately authorised reviewers.
-
-## 28. Project Visits
-
-Route:
-
-`/projects/{projectId}/visits`
-
-Operational list of field events.
-
-Columns:
-
-```text
-Visit
-Outlet
-Worker
-Zone
-Submitted
-Duration
-GPS
-Evidence
-Validation
-QA Status
-```
-
-Filters support rapid investigation.
-
-## 29. Visit Detail / Review
-
-Route:
-
-`/visits/{visitId}`
-
-Recommended desktop layout:
-
-```text
-+--------------------------------------------------------------+
-| Visit / Outlet / Status / Worker / Time                      |
-+-------------------------------+------------------------------+
-| Survey Responses              | Map / GPS                    |
-|                               |                              |
-| Sections                      | Evidence                     |
-| Answers                       | Photos                       |
-|                               |                              |
-+-------------------------------+------------------------------+
-| Validation Results / QA History                              |
-+--------------------------------------------------------------+
-```
-
-Actions depend on role/state:
-
-- accept;
-- return for correction;
-- flag/escalate;
-- reopen;
-- resolve duplicate;
-- inspect audit/history.
-
-## 30. QA Top-Level Screen
-
-Route:
-
-`/qa`
-
-Purpose:
-
-> **Show everything requiring quality attention in the current workspace.**
-
-Cards:
-
-```text
-Awaiting Review
-High-Risk Flags
-Returned
-Duplicate Review
-Overdue QA
-```
-
-Queue below with filters by project, worker, zone, validation type and age.
-
-## 31. Project QA Screen
-
-Route:
-
-`/projects/{projectId}/qa`
-
-Same QA workflow scoped to one project.
-
-Prioritisation:
-
-1. blocking/high-risk flags;
-2. duplicate identity concerns;
-3. GPS/evidence concerns;
-4. normal submitted visits.
-
-This enables exception-based QA later without redesigning the screen.
-
-## 32. QA Review Mode
-
-QA should support efficient repeated review.
-
-After accepting/returning one visit, user can move directly to next queued item.
-
-Example footer:
-
-```text
-[Return for Correction]       [Accept & Next]
-```
-
-Confirmation should be proportional to risk; do not require excessive modal confirmations for routine acceptance.
-
-## 33. Return for Correction Dialog
-
-Structured reasons:
-
-```text
-[ ] Photo unclear
-[ ] GPS issue
-[ ] Missing information
-[ ] Conflicting answer
-[ ] Wrong classification
-[ ] Possible duplicate
-[ ] Revisit required
-[ ] Other
-
-Notes: ______________________
-
-[Return to Worker]
-```
-
-Returned fields/sections should be identifiable where possible.
-
-## 34. Survey Screen
-
-Route:
-
-`/projects/{projectId}/survey`
-
-Shows:
-
-- Survey Definition;
-- active version;
-- publication state;
-- sections/questions;
-- version history.
+Match screen compares candidate and possible existing outlet using authorised identity evidence.
 
 Actions:
 
 ```text
-Preview
-Create New Version
-Publish Draft
-View Previous Version
+Confirm Existing
+Confirm New / Keep Separate
+Needs Review
+Merge (only stronger authorised role)
 ```
 
-Published version cannot be edited.
+Algorithm confidence can inform but never silently merge permanent outlets.
 
-## 35. Survey Builder Layout
+Field Workers receive simplified `Use Existing / Not the Same` choices and never complex Market Universe merge authority.
 
-Recommended desktop structure:
+## 20. Project Visits & Visit Detail
+
+Routes:
 
 ```text
-+----------------+----------------------------+----------------+
-| Sections       | Survey Canvas              | Properties     |
-|                |                            |                |
-| Outlet ID      | Q1 Outlet name             | Type           |
-| Category       | Q2 Outlet type             | Required       |
-| Evidence       | Q3 Storefront photo        | Validation     |
-|                |                            | Options        |
-+----------------+----------------------------+----------------+
+/projects/{projectId}/visits
+/visits/{visitId}
 ```
 
-MVP may use simpler forms initially, but the architecture should support this eventual efficient builder layout.
-
-## 36. Survey Preview
-
-Preview should emulate the Field Worker mobile experience.
-
-Project Manager can test:
-
-- section order;
-- required fields;
-- conditional questions;
-- photo requirements;
-- validation messages.
-
-Preview never writes production visits.
-
-## 37. Reports Screen
-
-Top-level:
-
-`/reports`
-
-Project-specific:
-
-`/projects/{projectId}/reports`
-
-Display:
-
-- daily summaries;
-- generated reports;
-- export jobs;
-- status;
-- creator;
-- creation time;
-- expiry where applicable.
-
-Primary actions:
+Visit list columns:
 
 ```text
-Generate Report
-Create Export
+Visit | Outlet | Worker | Zone | Submitted | GPS | Evidence | Validation | QA | Integration
 ```
 
-## 38. Export Wizard
+Visit Detail layout:
 
-Steps:
+```text
++----------------------------------------------------------------+
+| Visit / Outlet / SG Status / Worker / Time                     |
+| Integration: Premier WTS — Pending / Synced / Attention        |
++--------------------------------+-------------------------------+
+| Survey Responses               | Map / Visit Location          |
+| Sections / Repeatable Rows      | Evidence / Photos             |
++--------------------------------+-------------------------------+
+| Validation Results | QA History | Corrections | Integration    |
++----------------------------------------------------------------+
+```
+
+## 21. Integration Status on Visit
+
+Survey Guru and client-system state are always displayed independently:
+
+```text
+Survey Guru     ✓ Accepted
+Premier WTS     ✓ Synced
+```
+
+or:
+
+```text
+Survey Guru     ✓ Accepted
+Premier WTS     ⚠ Pending retry
+```
+
+or:
+
+```text
+Survey Guru     ✓ Accepted
+Premier WTS     ⚠ Interface update required
+```
+
+A third-party failure must never visually imply Survey Guru lost the Visit.
+
+## 22. QA Top-Level & Project QA
+
+Routes: `/qa`, `/projects/{projectId}/qa`
+
+Workspace QA cards:
+
+```text
+Awaiting Review
+Blocking / High-Risk
+Coverage Exceptions
+Duplicate Identity
+Returned Corrections
+Revisit Required
+Integration Attention
+Overdue QA
+```
+
+Queue filters include project, worker, zone, resource type, severity, rule type, age and status.
+
+## 23. QA Review Workspace
+
+QA is resource-oriented, not Visit-only. A QA work item may concern:
+
+- Visit;
+- Outlet identity;
+- Evidence/photo;
+- GPS/location;
+- response inconsistency;
+- street/cell coverage;
+- duplicate candidate;
+- integration exception.
+
+Layout:
+
+```text
++----------------------------------------------------------------+
+| QA Item | Severity | Project | Worker | Age                     |
++--------------------------------+-------------------------------+
+| Primary Resource                | Evidence / Map / Comparison   |
+| Responses / rule findings       | Photos / coverage context     |
++--------------------------------+-------------------------------+
+| Rule Result | History | Notes                                  |
++----------------------------------------------------------------+
+| [Return for Correction] [Require Revisit] [Resolve] [Next]     |
+```
+
+## 24. QA Severity UX
+
+Consistent severity:
+
+```text
+BLOCK
+WARN
+FLAG FOR QA
+INFO
+```
+
+`BLOCK` prevents the relevant transition where policy requires. UI cannot offer `Continue Anyway` for a server-defined BLOCK.
+
+WARN may allow continuation. FLAG FOR QA communicates review without exposing sensitive detection logic unnecessarily.
+
+## 25. Correction vs Revisit
+
+Correction means existing Visit data/evidence can be corrected within permitted fields.
+
+Revisit means new physical field observation is required and creates a new linked Visit.
+
+QA actions must therefore distinguish:
+
+```text
+Return for Correction
+Require Revisit
+```
+
+Never use a correction workflow to rewrite history when a new observation is required.
+
+## 26. Return for Correction
+
+Dialog supports structured reason, affected section/field/evidence and reviewer note.
+
+Field Today surfaces returned work prominently and opens directly to affected content.
+
+Original accepted/submitted history remains visible to authorised reviewers.
+
+## 27. Survey Builder & Preview
+
+Routes: `/projects/{projectId}/survey` plus builder/preview.
+
+Published Survey Versions are immutable. Preview emulates mobile question grouping, repeatable rows, required fields, conditional logic, evidence and validation messages without writing production Visits.
+
+## 28. Reports & Exports
+
+Routes: `/reports`, `/projects/{projectId}/reports`
+
+Coverage reports must separate:
+
+```text
+Outlet Result
+Geographic Search Completeness
+```
+
+Example:
+
+```text
+Accepted outlets: 1,284
+Eligible street network searched: 94.7%
+Outstanding street length: 8.6 km
+Searched-zero-found units: 132
+```
+
+Export wizard remains controlled:
 
 ```text
 1 Dataset
@@ -909,41 +589,11 @@ Steps:
 6 Generate
 ```
 
-Dataset examples:
+Viewing never implies export authority.
 
-- outlets;
-- visits;
-- responses;
-- QA;
-- coverage.
+## 29. Administration
 
-Only authorised fields/options are presented, and the API independently revalidates them.
-
-## 39. Field Team Top-Level Screen
-
-Route:
-
-`/field-team`
-
-Workspace-wide operational directory/view.
-
-Display:
-
-- worker;
-- organisation;
-- active project(s);
-- status;
-- today's assignments;
-- today's submissions;
-- correction backlog.
-
-This is not a payroll/HR screen.
-
-## 40. Administration
-
-Route:
-
-`/admin`
+Route: `/admin`
 
 Sections may include:
 
@@ -953,492 +603,491 @@ Workspaces
 Users & Membership
 Roles / Access
 Configuration
+Integrations
 Audit Activity
 ```
 
-Only authorised administrative sections are returned/displayed.
+Identity, organisation membership, workspace membership, role/permissions and project participation remain distinct concepts.
 
-## 41. User & Membership Administration
+## 30. Integrations Administration
 
-Admin should distinguish:
+Route concept: `/admin/integrations`
 
 ```text
-User Identity
-Organisation Membership
-Workspace Membership
-Workspace Role / Permissions
-Project Participation
+Third-Party Interfaces
+  Premier WTS
 ```
 
-Do not collapse these into one generic role dropdown.
+Premier interface screen tabs:
 
-This helps preserve the architecture's contextual access model.
+```text
+Configuration
+Field Mapping
+User / External Identity
+Interface Version
+Sync Status
+Update & Test
+Reference Screens
+Change History
+```
 
-## 42. Field Worker PWA Shell
+Compatibility states:
 
-Mobile navigation should use a small bottom navigation bar.
+```text
+Compatible
+Update Required
+Testing
+Incompatible
+```
 
-Recommended:
+Secrets/bearer tokens are never displayed as reusable credentials.
+
+## 31. Field Mobile Shell
+
+Bottom navigation is locked:
 
 ```text
 Today     Assignments     Map     Sync
 ```
 
-Profile/help is accessed from the header/menu rather than consuming a primary bottom-navigation slot.
+Header shows profile/help and compact connectivity/location/search-session state where relevant.
+
+The Map remains reachable throughout active fieldwork.
+
+## 32. Field Today
+
+Route: `/field/today`
+
+Priority:
+
+1. Corrections/Revisits needing action;
+2. sync items needing attention;
+3. today's progress;
+4. current/next Assignment.
+
+Example progress:
+
+```text
+Assignments completed: 3 / 12
+Visits submitted: 8
+Assigned street network searched: 67%
+Outstanding required street: 4.2 km
+Pending sync: 2
+```
+
+Outlet and coverage progress remain separate.
+
+## 33. Assignment Readiness
+
+Before `Start Assignment`, show:
+
+```text
+Survey               Ready
+Assignment Map        Ready
+Known Outlets         Ready
+Street Coverage       Ready
+Offline Package       Ready
+Location Permission   Ready
+Camera Permission     Ready
+Pending Sync          0
+```
+
+If required package components are unavailable, explain whether work can proceed safely.
+
+## 34. Search Session Control
+
+Starting a coverage-capable Assignment creates/resumes the Search Session.
+
+Field UI states:
+
+```text
+READY
+ACTIVE SEARCH
+VISIT IN PROGRESS
+PAUSED
+COMPLETED
+```
+
+When active:
+
+```text
+Searching this assignment
+Movement is being used to calculate project coverage.
+[Pause Search]
+```
+
+When paused:
+
+```text
+Search paused
+Movement is not currently contributing to coverage.
+[Resume Search]
+```
+
+Tracking language must be clear and purpose-limited, not ambiguous always-on surveillance.
+
+## 35. Field Live Street Coverage Map — First-Class MVP
+
+Route: `/field/map`
+
+Primary question:
+
+> **Which streets have I covered, and which streets do I still need to walk/search?**
+
+Required layers:
+
+```text
+Assignment Boundary / Zone
+Current Position
+Uncovered Streets
+Partially Covered Streets
+Covered Streets
+Known / Assigned Outlets
+Own Newly Discovered Outlets
+Selected Destination
+```
+
+Where relevant:
+
+```text
+Area/H3 Coverage
+Local Pending Coverage
+Authorised Team Coverage
+Deterministic Priority Areas
+```
+
+Primary actions:
+
+```text
+Discover Outlet
+View Outstanding
+Pause / Resume Search
+Re-centre
+Layer / Legend
+```
+
+## 36. Local Pending Coverage
+
+Offline/local traversal can update the map provisionally.
+
+The visual language distinguishes:
+
+```text
+SERVER CONFIRMED
+LOCAL — WAITING TO SYNC
+```
+
+A locally green/complete-looking street must not be represented as `VERIFIED`.
+
+After sync, authoritative server coverage replaces/reconciles local provisional state.
+
+## 37. Coverage Reconciliation UX
+
+If server calculation differs materially from local display, explain it.
 
 Example:
 
 ```text
-+-----------------------------+
-| Survey Guru          [User] |
-+-----------------------------+
-|                             |
-|       SCREEN CONTENT        |
-|                             |
-+-----------------------------+
-| Today | Tasks | Map | Sync  |
-+-----------------------------+
+Street coverage needs more walking.
+GPS evidence confirmed 68% of this street.
+
+[Show Outstanding Portion]
 ```
 
-## 43. Field Today Screen
+Do not silently reduce a worker's apparent completion without explanation.
 
-Route concept:
+## 38. Side-Street Protection UX
 
-`/field/today`
+A side street crossed at its entrance remains visibly outstanding.
 
-Top:
+The map must not visually fill nearby streets based merely on proximity.
+
+If map matching is uncertain:
 
 ```text
-Good morning, [Name]
-Monday, 7 September
-[Online / Offline]
+Coverage not confirmed here
+Walk further along this street to complete it.
 ```
 
-Priority order:
+This behaviour is a core MVP acceptance criterion.
 
-### Corrections
+## 39. Informal / Unmapped Area UX
 
-Returned work appears first if action is required.
+For `AREA_PRIMARY` or `HYBRID` zones, map uses area/H3 search coverage and movement-supported progress rather than pretending an incomplete road network is exhaustive.
 
-### Today's Progress
+Worker sees clear area cells/coverage guidance and can still discover outlets normally.
 
-```text
-3 / 12 assignments completed
-8 visits submitted
-2 pending sync
-```
-
-### Next Assignments
-
-Cards showing:
-
-- type;
-- outlet/zone;
-- priority;
-- approximate distance where available;
-- status;
-- primary action.
-
-## 44. Field Assignment Card
-
-Known outlet:
-
-```text
-SURVEY OUTLET
-Shop ABC
-Zone 4
-1.2 km
-
-[Open]
-```
-
-Coverage assignment:
-
-```text
-SEARCH ZONE
-Zone 14
-Coverage: 34%
-Priority: High
-
-[Open Map]
-```
-
-Returned visit:
-
-```text
-CORRECTION REQUIRED
-Shop XYZ
-Reason: Storefront photo unclear
-
-[Fix Visit]
-```
-
-## 45. Field Assignments Screen
-
-Route:
-
-`/field/assignments`
-
-Tabs/filters:
-
-```text
-Today
-Upcoming
-Completed
-Corrections
-```
-
-Only the worker's authorised assignments are returned.
-
-## 46. Field Assignment Detail
-
-Display:
-
-- assignment type;
-- target outlet/zone;
-- instructions;
-- due information;
-- map preview;
-- survey type;
-- offline readiness.
-
-Primary action varies:
-
-```text
-Start Assignment
-Navigate
-Continue
-Submit Correction
-```
-
-## 47. Field Map
-
-Route:
-
-`/field/map`
-
-Designed for outdoor mobile use.
-
-Show only necessary authorised layers:
-
-- assigned zone;
-- known assigned outlets;
-- own discovered outlets;
-- current location;
-- required coverage context.
-
-Primary floating action when discovery permitted:
-
-`+ Discover Outlet`
-
-## 48. Discover Outlet Screen
+## 40. Discover Outlet & Identity Gate
 
 Flow:
 
 ```text
 Capture Location
-      |
-Nearby Match Check
-      |
-Confirm Existing / New Candidate
-      |
-Storefront Evidence
-      |
-Begin Survey
+ -> Outlet Name / minimum identity
+ -> Nearby Match Check
+ -> Strong / Possible / No likely match
+ -> Use Existing / Confirm Not Same
+ -> Candidate + Storefront Evidence
+ -> Begin Visit
 ```
 
-Screen 1:
+Offline uncertain match may show:
 
 ```text
-Discover Outlet
-
-GPS: 5 m accuracy ✓
-
-Outlet name
-[________________]
-
-[Check Nearby Outlets]
+Saved as candidate
+Final duplicate check will run when synced.
 ```
 
-## 49. Nearby Outlet Match Screen
+Never silently merge.
 
-If candidates exist:
+## 41. Field Visit
 
-```text
-Possible Existing Outlet
+Route: `/field/visits/{visitId}`
 
-Shop ABC
-7 m away
-Last observed: 28 Aug
-
-[Use Existing]
-[Not the Same]
-```
-
-If multiple candidates exist, show concise cards sorted by confidence/distance.
-
-Do not make the Field Worker decide complex permanent Market Universe merges.
-
-## 50. Field Visit Screen
-
-Route:
-
-`/field/visits/{visitId}`
-
-Mobile layout:
+Header should show:
 
 ```text
 Shop ABC
-GPS 6m ✓        Saved locally ✓
-
-Progress 8 / 12
------------------------------
-Outlet Identity        ✓
-Store Classification   ✓
-Bread Category         3/5
-Competitors             -
-Evidence                -
------------------------------
-
-[Continue Survey]
+GPS: Good
+Saved locally ✓
+Search: Visit in progress
 ```
 
-This section summary lets a worker see completeness without scrolling through an entire long form.
+Visit sections display completion. Repeatable product/price rows are first-class for Premier-style surveys.
 
-## 51. Mobile Question Screen
+Autosave must make app switching, lock/suspension and connectivity loss recoverable subject to the mobile architecture capability decision.
 
-One question or small logical group at a time where practical.
+## 42. Validation UX
 
-Example:
-
-```text
-Bread Category
-
-Which bread brands are currently available?
-
-[ ] Blue Ribbon
-[ ] Albany
-[ ] Sasko
-[ ] Other
-
-[Back]                 [Next]
-```
-
-For fast surveys, grouped questions may be more efficient than strictly one question per page. The builder should allow the UX to balance speed and clarity.
-
-## 52. Field Photo Screen
-
-```text
-Storefront Photo *
-
-[ Camera Preview ]
-
-Photo must clearly show the storefront and signage.
-
-[Retake]             [Use Photo]
-```
-
-After capture:
-
-```text
-Saved on device
-Upload pending
-```
-
-when offline.
-
-## 53. GPS Quality UI
-
-Use understandable states:
-
-```text
-Location accurate ✓
-Improving location...
-Poor location accuracy — Retry
-Location unavailable
-```
-
-Show numerical accuracy where useful, but workers should not need GIS knowledge to interpret it.
-
-## 54. Capture Validation UI
-
-Severity patterns:
-
-### Blocking
+### BLOCK
 
 ```text
 Cannot submit yet
 Storefront photo is required.
 ```
 
-### Warning
+### WARN
 
 ```text
-GPS accuracy is 48 m.
+GPS accuracy is weak.
 Try again before submitting.
-
-[Retry GPS] [Continue Anyway]
+[Retry GPS] [Continue]
 ```
 
-where project policy allows continuation.
+only where policy allows.
 
-### QA Flag
+### FLAG FOR QA
 
 ```text
-Saved — this visit may be reviewed by QA.
+Saved — this item may be reviewed by QA.
 ```
 
-Avoid exposing internal fraud/security rules unnecessarily.
+Internal fraud/security rules should not be unnecessarily exposed.
 
-## 55. Visit Review & Submit
+## 43. Visit Review & Offline Submit
 
-Before final submission:
+Review includes required answers, GPS, evidence, warnings, identity state and integration-required fields.
+
+When offline, `Submit Visit` means:
+
+> **Complete locally and queue for authoritative server submission.**
+
+UI wording:
 
 ```text
-Visit Review
-
-Required questions       ✓
-Storefront photo         ✓
-GPS                      ✓
-Warnings                 1
-
-1 warning:
-Possible existing outlet nearby
-
-[Review Warning]
-
-[Submit Visit]
+Saved on device — waiting to sync
 ```
 
-Submission is explicit; accidental navigation must not silently submit.
+not `Accepted` or server-submitted.
 
-## 56. Submitted Visit Screen
+After local completion, return directly to the Live Map in the previous assignment context.
 
-```text
-Visit Submitted
+## 44. Correction Field UX
 
-Shop ABC
-14:42
+Returned Visit opens the affected section/field/evidence directly.
 
-Status: Waiting for QA
+Only permitted correction fields are editable. Unaffected accepted content should be read-only or clearly protected.
 
-[Back to Today]
-```
-
-If offline:
-
-```text
-Saved for Sync
-This visit will submit when a connection is available.
-```
-
-The UI must clearly distinguish locally completed from server-confirmed submitted.
-
-## 57. Correction Workflow
-
-Returned item opens directly to the reason and affected section.
+Flow:
 
 ```text
 Correction Required
+ -> Affected Section
+ -> Fix
+ -> Review Correction
+ -> Resubmit
+```
 
+## 45. Revisit Field UX
+
+A revisit appears as a new Assignment/task linked to the prior Visit:
+
+```text
+REVISIT REQUIRED
 Shop ABC
+Reason: GPS/location confirmation required
+Original visit: 8 Sep 2026
 
-Reason:
-Storefront photo unclear
-
-QA note:
-Please retake the front of the store showing the trading name.
-
-[Retake Photo]
+[Open Map]
+[Start Revisit]
 ```
 
-After correction:
+It creates a new Visit rather than reopening history as if it were the same physical observation.
 
-`Review Correction -> Resubmit`
+## 46. Sync Centre
 
-## 58. Field Sync Screen
+Route: `/field/sync`
 
-Route:
-
-`/field/sync`
-
-Simple status groups:
+Groups:
 
 ```text
-All Synced ✓
+SYNCED
+WAITING TO SYNC
+NEEDS ATTENTION
 ```
 
-or
+Items may include:
 
 ```text
-Pending (3)
-- Shop ABC visit
-- Shop XYZ photo
-- Zone 14 search activity
-
-Needs Attention (1)
-- Visit SG-VST-...   [Retry]
+Visit
+Photo / Evidence
+Outlet Candidate
+Movement Batch / Coverage
+Correction
+Integration handoff status where worker is permitted to see it
 ```
 
-Include:
+Per-operation result can show:
 
-`Sync Now`
+```text
+Synced
+Accepted for processing
+Retrying
+Conflict
+Rejected
+Needs attention
+```
 
-when manual retry is appropriate.
+`Sync Now` is available where useful.
 
-## 59. Offline Banner
+## 47. Connectivity Banner
 
-When offline, show a persistent but non-obstructive banner:
+Offline:
 
 ```text
 Offline — your work is being saved on this device.
 ```
 
-When connection returns:
+Reconnect:
 
 ```text
 Back online — syncing 4 items...
 ```
 
-Then:
+Success:
 
 ```text
 All work synced ✓
 ```
 
-## 60. Field Profile / Help
+Persistent warnings should be reserved for actionable states rather than creating banner fatigue.
 
-Accessible from header/user menu.
+## 48. Premier Field Integration Status
 
-Functions:
+Where the worker is allowed to see client sync status, show independent compact state after Survey Guru submission:
 
-- worker name/reference;
-- current organisation;
-- app version;
-- connectivity/sync diagnostics;
-- basic capture help;
-- sign out;
-- future device registration/support info.
+```text
+Survey Guru  ✓ Submitted
+Premier WTS  ... Pending
+```
 
-Do not expose unnecessary administrative profile editing.
+then:
 
-## 61. Responsive Management Behaviour
+```text
+Premier WTS  ✓ Synced
+```
 
-Management app should support desktop and tablet well.
+For the v2.006 UI-adapter POC, `Synced` is shown only after final `Submit Surveys` confirmation.
 
-On smaller screens:
+If the interface changed:
 
-- left navigation collapses;
-- tables may become cards or horizontally scroll with prioritised columns;
-- map side panels become bottom sheets;
-- filters become drawers;
-- critical actions remain reachable.
+```text
+Premier WTS  ⚠ Interface update required
+Your Survey Guru visit is safe.
+```
 
-Complex project administration need not be optimised for small phones to the same degree as the Field PWA.
+## 49. Field Profile / Diagnostics
 
-## 62. URL / Deep-Link Architecture
+Profile/help may show worker identity, organisation, app version, package version, connectivity, sync diagnostics, location permission/state, storage/battery warnings where useful, basic help and sign out.
 
-Stable routes should permit bookmarks and notification deep-links.
+Do not expose administration or secrets.
+
+## 50. Status Vocabulary v1.1
+
+Project:
+`Draft | Configured | Active | Paused | Completed | Archived`
+
+Assignment:
+`Assigned | Accepted | In Progress | Submitted | Completed | Reassigned | Cancelled`
+
+Search Session:
+`Ready | Active Search | Visit In Progress | Paused | Completed | Cancelled`
+
+Visit:
+`Capturing | Saved Offline | Syncing | Submitted | Review Required | Correction Required | Accepted`
+
+Street Coverage:
+`Uncovered | Partially Covered | Covered | Verified`
+
+Area Coverage:
+`Unvisited | In Progress | Searched | Verified`
+
+Evidence:
+`Pending Upload | Uploaded | Validating | Accepted | Replacement Required`
+
+QA:
+`Awaiting Review | Claimed | Correction Required | Revisit Required | Resolved`
+
+Integration:
+`Pending | Syncing | Synced | Action Required | Interface Update Required`
+
+## 51. Permission-Aware UX
+
+Examples:
+
+- Field Worker receives no management shell;
+- Client Viewer receives simplified project/results/map/report shell;
+- Analyst can view authorised analytics without automatically exporting;
+- QA sees only permitted project/resources/actions;
+- raw movement controls are absent from ordinary users;
+- Market Universe actions appear only to separately authorised roles;
+- coverage override is hidden unless specifically permitted.
+
+> **Hidden controls are convenience, not security.**
+
+## 52. Client Viewer Navigation
+
+Simplified shell:
+
+```text
+Dashboard
+Projects
+Map
+Reports
+```
+
+Project:
+
+```text
+Overview
+Map
+Accepted Results
+Reports
+```
+
+Client Map defaults to derived coverage/results. Taskraft/TES internal QA, worker-management, raw movement and Market Universe controls remain absent unless explicitly authorised.
+
+## 53. Deep Links
 
 Conceptual routes:
 
@@ -1462,101 +1111,38 @@ Conceptual routes:
 /visits/{visitId}
 /assignments/{assignmentId}
 /qa
+/qa/{qaWorkItemId}
 /field-team
 /reports
 /admin
+/admin/integrations
+/admin/integrations/{integrationProfileId}
 
 /field/today
 /field/assignments
 /field/assignments/{assignmentId}
 /field/map
 /field/visits/{visitId}
+/field/corrections/{correctionId}
+/field/revisits/{revisitTaskId}
 /field/sync
 ```
 
-Route existence does not grant access. API security and server-side page protections apply.
+Route existence never grants access.
 
-## 63. Breadcrumbs
+## 54. Responsive Management
 
-Use breadcrumbs for management depth, e.g.:
+Desktop/tablet are primary. On smaller screens navigation collapses, tables prioritise columns, map side panels become bottom sheets and filters become drawers.
 
-```text
-Projects > Mahikeng WTS > Visits > SG-VST-001842
-```
+Field map/capture is separately mobile-optimised.
 
-Avoid breadcrumbs in the Field PWA where they add complexity without field value.
+## 55. Empty, Loading & Error States
 
-## 64. Status Vocabulary
+Empty states explain next action rather than looking broken.
 
-Status terms must remain consistent across screens.
+Long operations become jobs/status rather than blocking spinners.
 
-Project:
-
-`Draft | Configured | Active | Paused | Completed | Archived`
-
-Assignment:
-
-`Assigned | Accepted | In Progress | Submitted | Completed | Reassigned | Cancelled`
-
-Visit:
-
-`Capturing | Saved Offline | Syncing | Submitted | Review Required | Correction Required | Accepted`
-
-Coverage:
-
-`Unvisited | In Progress | Searched | Verified`
-
-Evidence:
-
-`Pending Upload | Uploaded | Validating | Accepted | Replacement Required`
-
-Do not invent different synonyms on different screens.
-
-## 65. Empty States
-
-Every operational screen should explain what to do when empty.
-
-Example Projects:
-
-```text
-No projects yet
-Create your first Survey Guru project to begin configuring fieldwork.
-
-[Create Project]
-```
-
-Example Field Today:
-
-```text
-No assignments for today
-You're up to date. Pull down to refresh if your supervisor has just assigned work.
-```
-
-Empty states should not look like application errors.
-
-## 66. Loading States
-
-Use skeleton/loading indicators for expected short waits.
-
-For slow background processes such as exports/imports:
-
-- create a job;
-- show status;
-- allow user to leave screen;
-- notify on completion.
-
-Do not keep users staring at a blocking spinner during long processing.
-
-## 67. Error States
-
-Errors should be actionable and not expose backend internals.
-
-Examples:
-
-```text
-We couldn't load this project.
-[Retry]
-```
+Errors are actionable and safe:
 
 ```text
 You no longer have access to this assignment.
@@ -1568,316 +1154,268 @@ This visit changed while you were offline.
 Review the latest version before resubmitting.
 ```
 
-## 68. Confirmation Patterns
-
-Use confirmation for high-impact actions:
-
-- project archive;
-- survey publish;
-- assignment cancellation/reassignment where work exists;
-- QA override;
-- outlet identity merge;
-- Market Universe promotion;
-- bulk export;
-- membership revocation.
-
-Routine actions should not be slowed by unnecessary confirmation dialogs.
-
-## 69. Unsaved Work Protection
-
-Management forms warn before abandoning meaningful unsaved changes.
-
-Field capture automatically persists locally as the worker progresses.
-
-A field worker should not lose a survey because they accidentally close the app, switch screens or temporarily lose connectivity.
-
-## 70. Permission-Aware UX
-
-Examples:
-
-- Client Viewer does not see Field Team management actions;
-- Analyst may see reports but not assignment controls;
-- Field Worker receives no management shell;
-- QA sees review actions only where permitted;
-- Market Universe actions appear only to separately authorised users.
-
-However:
-
-> **Hidden controls are convenience, not security.**
-
-Every corresponding API operation must independently reject unauthorised callers.
-
-## 71. Client Viewer Navigation
-
-Client Viewer can use a simplified management shell:
-
 ```text
-Dashboard
-Projects
-Map
-Reports
+Coverage could not be confirmed for part of this street.
+Show outstanding area.
 ```
 
-Within project:
+## 56. Unsaved Work & Recovery
+
+Management warns before abandoning meaningful unsaved edits.
+
+Field capture autosaves locally. A worker should not lose a Visit because the app closes, network disappears or another approved app is opened.
+
+Mobile capability testing must explicitly validate lock-screen/background/app-switch behaviour before production architecture is locked.
+
+## 57. Screen-Level Data Loading
+
+Purpose-specific APIs only:
 
 ```text
-Overview
-Map
-Accepted Results
-Reports
+Project Overview -> project summary
+Project Map -> bounded coverage/map API
+Field Map -> assignment package + coverage changes
+QA -> paginated QA work items
+Visit -> authorised visit projection
+Sync -> per-operation sync state
+Integration -> authorised integration projection
 ```
 
-Taskraft internal QA/worker management and TES Market Universe controls remain absent.
+Do not download broad Firestore collections and filter them in UI.
 
-## 72. Map Technology Abstraction
-
-The UI architecture should not bind product navigation to a single GIS vendor.
-
-Conceptual map components consume Survey Guru APIs/layers:
-
-```text
-SurveyGuruMap
-CoverageLayer
-OutletLayer
-ZoneLayer
-FieldActivityLayer
-```
-
-The underlying map rendering provider may be evaluated separately (e.g. MapLibre/other suitable provider), while ArcGIS remains available for professional GIS workflows and PostGIS/H3 form the long-term TES geospatial data/intelligence core.
-
-## 73. Screen-Level Data Loading Principle
-
-Screens request purpose-specific API views rather than downloading whole collections.
-
-Examples:
-
-```text
-Project Overview -> project summary API
-Project Map -> bounded/layer API
-QA -> paginated QA queue API
-Field Today -> own-assignment summary API
-Outlet Detail -> authorised outlet detail API
-```
-
-This improves security, performance and migration readiness.
-
-## 74. Analytics Interaction Principle
-
-MVP dashboards should favour actionable drill-down.
-
-Example:
-
-`84 Awaiting QA` -> opens filtered QA queue.
-
-`12 Unvisited Cells` -> opens map filtered to unvisited.
-
-`Worker has 5 Corrections` -> opens that worker's correction queue.
-
-A metric without an operational path should be questioned before adding it.
-
-## 75. Screen Inventory — Management MVP
-
-Required management screens:
+## 58. Management MVP Screen Inventory v1.1
 
 1. Login/authentication
 2. Workspace Dashboard
 3. Projects
 4. New Project Wizard
 5. Project Overview
-6. Project Map & Coverage
-7. Project Assignments
-8. Assignment Detail
-9. Bulk Assignment
-10. Project Field Workers
-11. Field Worker Project Detail
-12. Project Outlets
-13. Workspace Outlet Registry
-14. Outlet Detail
-15. Match / Identity Review
-16. Project Visits
-17. Visit Detail
-18. Workspace QA
-19. Project QA
-20. QA Review / Correction
-21. Project Survey
-22. Survey Builder
-23. Survey Preview
-24. Reports
-25. Export Wizard
-26. Field Team
-27. Administration
-28. Users / Membership
-29. Audit Activity
-30. Import Wizard
-31. Import Result / Error Review
+6. Project Live Map & Coverage
+7. Coverage Outstanding View
+8. Coverage Exception Detail
+9. Project Assignments
+10. Assignment Detail
+11. Bulk Assignment
+12. Project Field Workers
+13. Field Worker Project Detail
+14. Project Outlets
+15. Workspace Outlet Registry
+16. Outlet Detail
+17. Match / Identity Review
+18. Project Visits
+19. Visit Detail
+20. Workspace QA
+21. Project QA
+22. QA Work Item Review
+23. Correction Review
+24. Revisit Review
+25. Project Survey
+26. Survey Builder
+27. Survey Preview
+28. Reports
+29. Export Wizard
+30. Field Team
+31. Administration
+32. Users / Membership
+33. Integrations
+34. Premier WTS Interface Detail
+35. Audit Activity
+36. Import Wizard
+37. Import Result / Error Review
 
-## 76. Screen Inventory — Field MVP
-
-Required field screens:
+## 59. Field MVP Screen Inventory v1.1
 
 1. Login/authentication
 2. Today
 3. Assignments
-4. Assignment Detail
-5. Field Map
-6. Discover Outlet
-7. Nearby Match Check
-8. Visit Summary
-9. Survey Question / Section Capture
-10. Photo Capture
-11. GPS Retry/Status
-12. Visit Review
-13. Submitted / Saved for Sync
-14. Correction Detail
-15. Sync Centre
-16. Profile / Help
+4. Assignment Detail / Readiness
+5. Search Session Start/Pause state
+6. Live Street Coverage Map
+7. View Outstanding
+8. Discover Outlet
+9. Nearby Match Check
+10. Visit Summary
+11. Survey Section / Question Capture
+12. Repeatable Product / Price Rows
+13. Photo Capture
+14. GPS Status/Retry
+15. Visit Review
+16. Submitted / Saved for Sync
+17. Correction Detail
+18. Revisit Detail
+19. Sync Centre
+20. Coverage Reconciliation Message
+21. Profile / Help / Diagnostics
 
-## 77. Critical End-to-End Navigation — Project Manager
+## 60. End-to-End — Project Manager
 
 ```text
 Login
  -> Dashboard
- -> Projects
- -> New Project
- -> Configure Survey
- -> Define Geography
- -> Add Field Team
- -> Create Assignments
+ -> New/Open Project
+ -> Survey
+ -> Geography + Coverage Mode
+ -> Field Team
+ -> Assignments
  -> Activate
- -> Project Overview
- -> Map / Monitor
- -> QA / Exceptions
+ -> Overview
+ -> Live Map / View Outstanding
+ -> Reassign gaps / resolve exceptions
+ -> QA
  -> Reports / Export
 ```
 
-## 78. Critical End-to-End Navigation — Field Worker
+## 61. End-to-End — Field Worker
 
 ```text
 Login
  -> Today
- -> Assignment
- -> Map / Navigate
- -> Discover or Select Outlet
- -> Duplicate Check
+ -> Assignment Readiness
+ -> Start Assignment / Search Session
+ -> Live Map
+ -> Walk/Search Outstanding Streets
+ -> Discover / Select Outlet
+ -> Identity Gate
  -> Visit
- -> Survey
- -> Photos / GPS
+ -> Survey / Evidence
  -> Review
- -> Submit
- -> Sync if needed
- -> Today
+ -> Save/Submit
+ -> Return to Live Map
+ -> Continue Outstanding Coverage
+ -> Sync
+ -> Complete Assignment
 ```
 
-## 79. Critical End-to-End Navigation — QA
+## 62. End-to-End — QA
 
 ```text
-Login
- -> QA Queue
- -> Visit Review
- -> Evidence / GPS / Responses
- -> Accept
-      OR
- -> Return for Correction
- -> Next Visit
+QA Queue
+ -> QA Work Item
+ -> Responses / Evidence / Map / Validation
+ -> Resolve
+      OR Return for Correction
+      OR Require Revisit
+      OR Escalate authorised identity/coverage exception
+ -> Next
 ```
 
-## 80. Critical End-to-End Navigation — Coverage Investigation
+## 63. End-to-End — Coverage Investigation
 
 ```text
 Project Overview
- -> Coverage metric
- -> Map filtered to Unvisited/Searched
- -> Select Zone/Cell
- -> Inspect search effort/outlets
- -> Review worker activity
- -> Create/Reassign coverage assignment
+ -> Street Coverage KPI
+ -> View Outstanding
+ -> Map
+ -> Select uncovered/partial street
+ -> Inspect confidence/exceptions
+ -> Review derived worker contribution
+ -> Create/Reassign work
+ -> Field sync/traversal
+ -> Server recalculation
+ -> Map updates
 ```
 
-This is a foundational Survey Guru operational loop.
-
-## 81. Critical End-to-End Navigation — Outlet Identity
+## 64. End-to-End — Premier Integration
 
 ```text
-Duplicate Flag
- -> Match Review
- -> Compare locations/names/evidence
- -> Link Existing
-      OR
- -> Keep Separate
-      OR
- -> Escalate
- -> Record decision
+Accepted Survey Guru Visit
+ -> Integration Job
+ -> Premier Adapter
+ -> Populate authorised WTS flow
+ -> Final Submit Surveys
+ -> Confirm success
+ -> Premier WTS ✓ Synced
 ```
 
-Future AI confidence can plug into this flow without replacing human review.
+Failure path:
 
-## 82. MVP UX Acceptance Criteria
+```text
+Survey Guru ✓ Accepted
+Premier WTS ⚠ Pending / Action Required
+ -> Retry / Interface Update
+```
 
-The navigation design is successful when:
+No recapture of canonical Survey Guru data.
 
-1. Project Manager can reach any major project operation within a small number of predictable clicks.
-2. Field Worker can begin today's work immediately after login.
-3. Field Worker can complete a normal visit without entering management screens.
-4. Offline/sync status is always understandable.
-5. QA can review consecutive visits efficiently.
-6. Map/coverage drill-down connects directly to operational actions.
-7. Outlet history clearly distinguishes outlet identity from visits.
-8. Client Viewer cannot accidentally enter Taskraft internal workflows.
-9. Status vocabulary is consistent.
-10. Direct URL manipulation provides no extra authority.
-11. Large project screens use bounded/paginated data rather than whole-dataset loading.
-12. Critical errors provide a clear recovery path.
+## 65. MVP UX Acceptance Criteria v1.1
 
-## 83. Locked Screen & Navigation Decisions
+The design is successful when:
 
-1. Survey Guru has separate management and Field Worker experiences.
-2. Field PWA is task-focused, not a compressed admin application.
-3. Management shell uses workspace context and project command centres.
-4. Project Map & Coverage is a core operational screen.
-5. Project-level tabs are Overview, Map & Coverage, Assignments, Field Workers, Outlets, Visits, QA, Survey, Reports and Settings.
-6. Field bottom navigation is Today, Assignments, Map and Sync.
-7. Returned corrections appear prominently on Field Today.
-8. Field capture autosaves locally.
-9. Locally completed and server-submitted states are visibly different.
-10. Outlet duplicate checking occurs before blindly creating a new outlet.
-11. Complex outlet merge/promotion decisions are not delegated to ordinary Field Workers.
-12. QA is designed for exception-based/high-throughput review.
-13. Coverage metrics drill into map/cell details and operational action.
-14. Client Viewer receives a simplified restricted shell.
-15. Export uses a controlled wizard, not generic database download.
-16. Stable deep links are supported, but routes do not grant access.
-17. Map implementation is provider-abstracted.
-18. Screens consume purpose-specific APIs, not direct broad database collections.
-19. UX permissions never replace API/backend authorisation.
-20. Screen architecture is designed to accept future AI recommendations without restructuring the core workflow.
+1. Field Worker can immediately identify today's work.
+2. Live Street Coverage Map is reachable throughout active fieldwork.
+3. Worker can distinguish covered, partial and outstanding streets without colour alone.
+4. Crossing a side street does not visually mark it covered.
+5. Local pending coverage is distinguishable from server-confirmed coverage.
+6. Material reconciliation differences are explained.
+7. Worker can pause/resume Search Session and understand movement purpose.
+8. Offline Visit and coverage work survives restart/connectivity loss.
+9. Worker returns to previous map context after Visit.
+10. View Outstanding identifies remaining geography clearly.
+11. Informal/unmapped area mode does not falsely imply complete road coverage.
+12. Outlet identity check occurs before new permanent identity.
+13. QA can process Visit, identity, evidence and coverage exceptions efficiently.
+14. Correction and revisit are visibly distinct.
+15. Survey Guru and Premier statuses are independent.
+16. Premier failure never appears as loss of Survey Guru Visit.
+17. Supervisor can see geographic holes without raw GPS trails.
+18. Outlet result and geographic completeness are reported separately.
+19. Client Viewer cannot enter internal QA/worker/raw movement workflows.
+20. Direct URL/UI manipulation gives no extra authority.
+21. Large maps/lists use bounded/paginated APIs.
+22. Field PWA/native capability gate is tested under lock/background/app switching before production.
 
-## 84. Next Product Specification
+## 66. Locked Screen & Navigation Decisions v1.1
 
-The next design document should be:
+1. Separate management and field experiences remain.
+2. Field bottom navigation remains Today, Assignments, Map, Sync.
+3. Live Street Coverage Map is a first-class MVP capability.
+4. Map answers “what have I covered and what remains?”
+5. Street coverage states are Uncovered, Partial, Covered, Verified.
+6. Area states remain Unvisited, In Progress, Searched, Verified.
+7. Searched-zero-found is visually distinct from unvisited.
+8. View Outstanding is first-class.
+9. Local pending coverage is visually distinct from server-confirmed state.
+10. Field Worker never sees local provisional state as VERIFIED.
+11. Coverage reconciliation differences are explained.
+12. Search Session start/pause/resume is visible and purpose-limited.
+13. Side-street proximity cannot visually imply completion.
+14. Informal/unmapped areas support area/hybrid coverage UX.
+15. Raw movement trails are not normal management/client UI.
+16. Management consumes derived coverage by default.
+17. Outlet identity gate precedes new outlet creation.
+18. Permanent outlet merges remain stronger-authority operations.
+19. Corrections preserve history; revisits create new linked Visits.
+20. QA is resource-oriented and exception-based.
+21. BLOCK validation cannot offer a UI bypass.
+22. Survey Guru and third-party integration states are independent.
+23. Premier WTS Synced requires final Submit Surveys confirmation for v2.006 adapter flow.
+24. Field work returns to Live Map after Visit.
+25. Offline and server-submitted states remain visibly distinct.
+26. Outlet result and geographic completeness are separate KPIs.
+27. Client Viewer uses simplified restricted navigation.
+28. Export remains a controlled separately authorised workflow.
+29. Stable deep links do not grant authority.
+30. Screens use purpose-specific APIs rather than broad database downloads.
+31. Map provider remains abstracted from TES domain truth.
+32. PWA/background location reliability is an architecture gate, not assumed.
+33. If PWA reliability is inadequate, native/hybrid capability is preferred over weakening coverage requirements.
+34. UX permissions never replace backend/API authorisation.
 
-**Survey Guru Field Capture & Offline Workflow Specification v1.0**
+## 67. Next Implementation Design Work
 
-It should define in implementation detail:
+The major product, data, persistence, API, coverage, field workflow and navigation baselines are now mutually aligned enough to move into implementation-oriented design.
 
-- assignment download/readiness;
-- local device data model;
-- survey autosave;
-- offline outlet creation;
-- GPS capture/retry;
-- evidence/photo queue;
-- visit state machine;
-- sync queue;
-- idempotency;
-- partial upload failure;
-- conflict handling;
-- revoked assignment behaviour;
-- app restart/recovery;
-- worker-facing error states;
-- server acknowledgement states;
-- data cleanup after successful sync.
+Recommended next artefacts:
 
-This is the highest-risk operational area of the MVP because Survey Guru must work reliably where field connectivity is poor.
+1. **Mobile Capability & Background Location ADR v1.0** — test and decide PWA vs native/hybrid capability for credible field movement collection.
+2. **Import & Export Specification v1.0** — project setup, seed outlet import, validation, mappings and controlled exports.
+3. **PostgreSQL/PostGIS Logical Schema v1.0** — future spatial persistence target mapped from stable domain/API contracts.
+4. Detailed endpoint request/response contracts can then be produced alongside implementation.
+
+The Mobile Capability ADR is the highest-risk immediate decision because Live Street Coverage is now locked into the MVP and must work during camera use, screen lock, Premier Power Apps switching, navigation and unreliable connectivity.
 
 ---
 
-This is a living TES product-design specification. Material screen, workflow or navigation changes must be version-controlled in the Survey Guru repository.
+## Living Documentation Rule
+
+This is a living TES product-design specification. Material screen, workflow, navigation, coverage, QA, offline, integration or security changes must be version-controlled here and in other materially affected Survey Guru/TES documents rather than remaining only in chat or informal notes.
