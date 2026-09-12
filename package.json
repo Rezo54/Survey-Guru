@@ -1,0 +1,23 @@
+{
+  "name": "survey-guru",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:web": "npm run dev --workspace @survey-guru/web",
+    "dev:api": "npm run dev --workspace @survey-guru/api",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "android:sync": "npm run sync --workspace @survey-guru/android"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
