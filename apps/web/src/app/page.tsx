@@ -2,19 +2,18 @@ import Link from 'next/link';
 
 export default function HomePage() {
   return (
-    <main className="shell">
-      <section className="hero">
+    <main className="home-shell">
+      <section className="home-card">
         <p className="eyebrow">TES — Task Expert Systems</p>
         <h1>Survey Guru</h1>
-        <p className="lede">Discover. Survey. Validate. Map. Analyse.</p>
-        <div className="actions">
-          <Link className="primary" href="/field">Open Field PWA</Link>
+        <p className="subtle">Discover. Survey. Validate. Map. Analyse.</p>
+        <p><span className="kicker">Hybrid Enterprise/GIS</span> — geographic intelligence stays at the centre of the operating experience.</p>
+        <div className="home-actions">
+          <Link className="button primary" href="/dashboard">Open Management</Link>
+          <Link className="button" href="/field">Open Field PWA</Link>
+          <Link className="button" href="/field/map">Open Field Map</Link>
         </div>
-      </section>
-      <section className="card-grid">
-        <article className="card"><strong>Management</strong><span>Projects, QA, coverage and reporting will live here.</span></article>
-        <article className="card"><strong>Field</strong><span>The first implementation checkpoint focuses on offline-ready field execution.</span></article>
-        <article className="card"><strong>Authority</strong><span>All protected business operations go through the Survey Guru API.</span></article>
+        <div className="design-note">This checkpoint is deliberately configuration-safe: Firebase and protected API operations remain injected later. The screens use representative local data to validate structure, hierarchy and field usability first.</div>
       </section>
     </main>
   );
