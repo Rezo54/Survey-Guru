@@ -3,13 +3,76 @@ import Link from 'next/link';
 import ProjectGoogleMap from './ProjectGoogleMap';
 import styles from './project-map.module.css';
 
+const metrics=[
+  ['⌖','1,846','Verified outlets'],
+  ['◔','72%','Reconciled'],
+  ['▥','118 km','Outstanding'],
+  ['◷','41','Awaiting QA'],
+];
+
+const opportunities=[
+  ['74','Retail Cluster 03 – Dobsonville','74 priority-profile outlets'],
+  ['32','Growth Corridor – Main Road','32 potential outlets'],
+  ['18','Underserved Area – Meadowlands','18 high-potential outlets'],
+];
+
+const fieldQueue=[
+  ['red','Dobsonville West','18.6 km search gap · Team 04'],
+  ['amber','Meadowlands','12 outlet verifications · Team 02'],
+  ['amber','Orlando East','Evidence outstanding · Team 06'],
+  ['green','Pimville','Start area · Team 03'],
+];
+
 export default function ProjectMapPage(){return <main className={styles.page}><div className={styles.shell}>
-<aside className={styles.side}><Image className={styles.logo} src="/survey-guru-brand.svg" alt="Survey Guru" width={760} height={230}/><nav className={styles.nav}><Link href="/dashboard">⌂ <span>Dashboard</span></Link><Link className={styles.active} href="/projects/demo/map">◇ <span>Project Map</span></Link><Link href="/field">◎ <span>Field Today</span></Link><Link href="/field/map">⌖ <span>Field Live Map</span></Link><Link href="/opportunities/demo">✦ <span>Opportunities</span></Link></nav><div className={styles.sideStory}><strong>Evidence before inference.</strong><span>A Task Expert Systems product</span></div></aside>
-<section className={styles.main}><header className={styles.top}><div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div><div className={styles.topRight}><span className={styles.status}>● Synced</span><span className={styles.user}>B</span></div></header><div className={styles.content}>
-<section className={styles.heading}><div><p className={styles.eyebrow}>Soweto Retail Universe · Project Map & Coverage</p><h1>See what is known — and what is not.</h1><p>Discovery never substitutes for search evidence. Unknown geography remains visible until reconciled.</p></div><div className={styles.headingActions}><Link className={styles.button} href="/dashboard">Dashboard</Link><Link className={`${styles.button} ${styles.primary}`} href="/field">Send to field →</Link></div></section>
-<section className={styles.workspace}><article className={styles.mapPanel}><div className={styles.panelHead}><div><p className={styles.eyebrow}>Authoritative field picture</p><h2>Coverage, evidence and opportunity</h2></div><div className={styles.modeTabs}><span className={styles.selected}>Coverage</span><span>Outlets</span><span>Opportunity</span><span>Evidence</span></div></div><ProjectGoogleMap /></article>
-<aside className={styles.sideStack}><section className={styles.sidePanel}><p className={styles.eyebrow}>Project progress</p><h3>Coverage is becoming decision-ready.</h3><div className={styles.metrics}><div><strong>1,846</strong><span>Verified outlets</span></div><div><strong>72%</strong><span>Reconciled</span></div><div><strong>118 km</strong><span>Outstanding</span></div><div><strong>41</strong><span>Awaiting QA</span></div></div><div className={styles.progress}><i/></div><div className={styles.callout}><strong>Core search evidence is strong.</strong><p>Keep the western pocket visible until the remaining streets are physically searched.</p></div></section>
-<section className={styles.sidePanel}><p className={styles.eyebrow}>Opportunity signal</p><h3>Dobsonville Cluster 03</h3><div className={styles.callout}><strong>74 priority-profile outlets</strong><p>Outlet density and category potential are strengthening together.</p></div><Link className={styles.button} href="/opportunities/demo">Story + Explore →</Link></section>
-<section className={styles.sidePanel}><p className={styles.eyebrow}>Field queue</p><h3>What needs attention next</h3><div className={styles.queue}><div><strong>Dobsonville West</strong><span className={styles.risk}>18.6 km search gap · Team 04</span></div><div><strong>Meadowlands</strong><span>12 outlet verifications · Team 02</span></div><div><strong>Orlando East</strong><span>Evidence reconciled · Team 07</span></div></div><Link className={styles.button} href="/field">Open Field Today →</Link></section></aside></section>
-<footer className={styles.footer}><span><strong>Survey Guru</strong> · Turning field reality into trusted intelligence.</span><span>Task Expert Systems · People | Places | Possibilities</span></footer>
-</div></section></div></main>}
+  <aside className={styles.side}>
+    <div className={styles.brand}><Image src="/survey-guru-brand.svg" alt="Survey Guru" width={760} height={230}/></div>
+    <nav className={styles.nav}>
+      <Link href="/dashboard">⌂ <span>Dashboard</span></Link>
+      <Link className={styles.active} href="/projects/demo/map">◇ <span>Project Map</span></Link>
+      <Link href="/field">◎ <span>Field Today</span></Link>
+      <Link href="/field/map">⌖ <span>Field Live Map</span></Link>
+      <Link href="/opportunities/demo">✦ <span>Opportunities</span></Link>
+      <a href="#evidence">▤ <span>Evidence & QA</span></a>
+    </nav>
+    <div className={styles.tableMountain} aria-hidden="true" />
+    <div className={styles.sideStory}><strong>Real places.<br/>Real data.<br/>Real opportunities.</strong><span>A Task Expert Systems product</span></div>
+  </aside>
+
+  <section className={styles.main}>
+    <header className={styles.top}>
+      <div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div>
+      <div className={styles.topRight}><button className={styles.location}>⌖ &nbsp; Soweto⌄</button><span className={styles.bell}>♧</span><span className={styles.user}>B</span></div>
+    </header>
+
+    <div className={styles.content}>
+      <section className={styles.heading}>
+        <div><h1>Project Map</h1><p>Live coverage, field activity and opportunities</p></div>
+        <div className={styles.projectSelect}><span>Soweto Retail Universe</span><b>Active</b></div>
+      </section>
+
+      <section className={styles.mapPanel}>
+        <div className={styles.mapToolbar}>
+          <div className={styles.mapTypes}><span className={styles.selected}>Map</span><span>Satellite</span><span>Hybrid</span><span>Terrain</span></div>
+          <div className={styles.mapTools}><button>▱ Layers</button><button>▽ Filter</button><button>⌾ Locate</button><button>⛶</button></div>
+        </div>
+        <ProjectGoogleMap />
+      </section>
+
+      <section className={styles.metrics}>{metrics.map(([icon,value,label])=><article key={label}><i>{icon}</i><div><strong>{value}</strong><span>{label}</span></div></article>)}</section>
+
+      <section className={styles.lowerGrid}>
+        <article className={styles.insightPanel}>
+          <div className={styles.panelTitle}><h2>◎ &nbsp; Opportunity Signals</h2><Link href="/opportunities/demo">View all →</Link></div>
+          <div className={styles.signalList}>{opportunities.map(([score,title,copy],index)=><Link href="/opportunities/demo" key={title} className={styles.signalRow}><b className={`${styles.score} ${index===0?styles.hot:styles.warm}`}>{score}</b><div><strong>{title}</strong><span>{copy}</span></div><em>›</em></Link>)}</div>
+        </article>
+
+        <article className={styles.insightPanel}>
+          <div className={styles.panelTitle}><h2>♙ &nbsp; Field Queue (Today)</h2><Link href="/field">Open Field Today →</Link></div>
+          <div className={styles.queue}>{fieldQueue.map(([tone,title,copy])=><div key={title}><i className={styles[tone]}/><div><strong>{title}</strong><span>{copy}</span></div></div>)}</div>
+        </article>
+      </section>
+
+      <footer className={styles.footer}><span><strong>Survey Guru</strong> · Turning field reality into trusted intelligence.</span><span>Task Expert Systems · People | Places | Opportunities</span></footer>
+    </div>
+  </section>
+</div></main>}
