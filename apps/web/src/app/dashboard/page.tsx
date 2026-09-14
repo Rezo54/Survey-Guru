@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import SurveyGuruSidebarFooter from '../../components/SurveyGuruSidebarFooter';
 import styles from './dashboard.module.css';
 
 const metrics = [
@@ -35,11 +36,7 @@ export default function DashboardPage() {
                     </div>
 
                     <div className={styles.tableMountain} aria-hidden="true" />
-
-                    <div className={styles.sideFoot}>
-                        <strong>Real places.<br />Real data.<br />Real opportunities.</strong>
-                        <span>A Task Expert Systems product</span>
-                    </div>
+                    <SurveyGuruSidebarFooter />
                 </aside>
 
                 <section className={styles.main}>
