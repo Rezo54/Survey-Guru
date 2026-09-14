@@ -1,136 +1,28 @@
 import Link from 'next/link';
-import SurveyGuruSidebarFooter from '../../../../components/SurveyGuruSidebarFooter';
+import SurveyGuruSidebar from '../../../../components/SurveyGuruSidebar';
 import ProjectGoogleMap from './ProjectGoogleMap';
 import styles from './project-map.module.css';
 
-const metrics = [
-    ['⌖', '1,846', 'Verified outlets'],
-    ['◔', '72%', 'Reconciled'],
-    ['▥', '118 km', 'Outstanding'],
-    ['◷', '41', 'Awaiting QA'],
-];
-
-const opportunities = [
-    ['74', 'Retail Cluster 03 – Dobsonville', '74 priority-profile outlets'],
-    ['32', 'Growth Corridor – Main Road', '32 potential outlets'],
-    ['18', 'Underserved Area – Meadowlands', '18 high-potential outlets'],
-];
-
+const metrics = [['⌖','1,846','Verified outlets'],['◔','72%','Reconciled'],['▥','118 km','Outstanding'],['◷','41','Awaiting QA']];
+const opportunities = [['74','Retail Cluster 03 – Dobsonville','74 priority-profile outlets'],['32','Growth Corridor – Main Road','32 potential outlets'],['18','Underserved Area – Meadowlands','18 high-potential outlets']];
 type QueueTone = 'red' | 'amber' | 'green';
-
-const fieldQueue: ReadonlyArray<readonly [QueueTone, string, string]> = [
-    ['red', 'Dobsonville West', '18.6 km search gap · Team 04'],
-    ['amber', 'Meadowlands', '12 outlet verifications · Team 02'],
-    ['amber', 'Orlando East', 'Evidence outstanding · Team 06'],
-    ['green', 'Pimville', 'Start area · Team 03'],
-];
+const fieldQueue: ReadonlyArray<readonly [QueueTone,string,string]> = [['red','Dobsonville West','18.6 km search gap · Team 04'],['amber','Meadowlands','12 outlet verifications · Team 02'],['amber','Orlando East','Evidence outstanding · Team 06'],['green','Pimville','Start area · Team 03']];
 
 export default function ProjectMapPage() {
-    return (
-        <main className={styles.page}>
-            <div className={styles.shell}>
-                <aside className={styles.side}>
-                    <div className={styles.sidebarTop}>
-                        <div className={styles.brand}>
-                            <img src="/brand/survey-guru-symbol.png" alt="Survey Guru" />
-                        </div>
-
-                        <nav className={styles.nav}>
-                            <Link href="/dashboard">⌂ <span>Dashboard</span></Link>
-                            <Link className={styles.active} href="/projects/demo/map">◇ <span>Project Map</span></Link>
-                            <Link href="/field">◎ <span>Field Today</span></Link>
-                            <Link href="/field/map">⌖ <span>Field Live Map</span></Link>
-                            <Link href="/opportunities/demo">✦ <span>Opportunities</span></Link>
-                            <a href="#evidence">▤ <span>Evidence & QA</span></a>
-                        </nav>
-                    </div>
-
-                    <div className={styles.tableMountain} aria-hidden="true" />
-                    <SurveyGuruSidebarFooter />
-                </aside>
-
-                <section className={styles.main}>
-                    <header className={styles.top}>
-                        <div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div>
-                        <div className={styles.topRight}>
-                            <button className={styles.location}>⌖ &nbsp; Soweto⌄</button>
-                            <span className={styles.bell}>♧</span>
-                            <span className={styles.user}>B</span>
-                        </div>
-                    </header>
-
-                    <div className={styles.content}>
-                        <section className={styles.heading}>
-                            <div>
-                                <h1>Project Map</h1>
-                                <p>Live coverage, field activity and opportunities</p>
-                            </div>
-                            <div className={styles.projectSelect}>
-                                <span>Soweto Retail Universe</span><b>Active</b>
-                            </div>
-                        </section>
-
-                        <section className={styles.mapPanel}>
-                            <div className={styles.mapToolbar}>
-                                <div className={styles.mapTypes}>
-                                    <span className={styles.selected}>Map</span>
-                                    <span>Satellite</span><span>Hybrid</span><span>Terrain</span>
-                                </div>
-                                <div className={styles.mapTools}>
-                                    <button>▱ Layers</button><button>▽ Filter</button>
-                                    <button>⌾ Locate</button><button>⛶</button>
-                                </div>
-                            </div>
-                            <ProjectGoogleMap />
-                        </section>
-
-                        <section className={styles.metrics}>
-                            {metrics.map(([icon, value, label]) => (
-                                <article key={label}>
-                                    <i>{icon}</i><div><strong>{value}</strong><span>{label}</span></div>
-                                </article>
-                            ))}
-                        </section>
-
-                        <section className={styles.lowerGrid}>
-                            <article className={styles.insightPanel}>
-                                <div className={styles.panelTitle}>
-                                    <h2>◎ &nbsp; Opportunity Signals</h2>
-                                    <Link href="/opportunities/demo">View all →</Link>
-                                </div>
-                                <div className={styles.signalList}>
-                                    {opportunities.map(([score, title, copy], index) => (
-                                        <Link href="/opportunities/demo" key={title} className={styles.signalRow}>
-                                            <b className={`${styles.score} ${index === 0 ? styles.hot : styles.warm}`}>{score}</b>
-                                            <div><strong>{title}</strong><span>{copy}</span></div><em>›</em>
-                                        </Link>
-                                    ))}
-                                </div>
-                            </article>
-
-                            <article className={styles.insightPanel}>
-                                <div className={styles.panelTitle}>
-                                    <h2>♙ &nbsp; Field Queue (Today)</h2>
-                                    <Link href="/field">Open Field Today →</Link>
-                                </div>
-                                <div className={styles.queue}>
-                                    {fieldQueue.map(([tone, title, copy]) => (
-                                        <div key={title}>
-                                            <i className={styles[tone]} />
-                                            <div><strong>{title}</strong><span>{copy}</span></div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </article>
-                        </section>
-
-                        <footer className={styles.footer}>
-                            <span><strong>Survey Guru</strong> · Turning field reality into trusted intelligence.</span>
-                            <span>Task Expert Systems · People | Places | Opportunities</span>
-                        </footer>
-                    </div>
+    return <main className={styles.page}><div className={styles.shell}>
+        <SurveyGuruSidebar active="project-map" />
+        <section className={styles.main}>
+            <header className={styles.top}><div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div><div className={styles.topRight}><button className={styles.location}>⌖ &nbsp; Soweto⌄</button><span className={styles.bell}>♧</span><span className={styles.user}>B</span></div></header>
+            <div className={styles.content}>
+                <section className={styles.heading}><div><h1>Project Map</h1><p>Live coverage, field activity and opportunities</p></div><div className={styles.projectSelect}><span>Soweto Retail Universe</span><b>Active</b></div></section>
+                <section className={styles.mapPanel}><div className={styles.mapToolbar}><div className={styles.mapTypes}><span className={styles.selected}>Map</span><span>Satellite</span><span>Hybrid</span><span>Terrain</span></div><div className={styles.mapTools}><button>▱ Layers</button><button>▽ Filter</button><button>⌾ Locate</button><button>⛶</button></div></div><ProjectGoogleMap /></section>
+                <section className={styles.metrics}>{metrics.map(([icon,value,label]) => <article key={label}><i>{icon}</i><div><strong>{value}</strong><span>{label}</span></div></article>)}</section>
+                <section className={styles.lowerGrid}>
+                    <article className={styles.insightPanel}><div className={styles.panelTitle}><h2>◎ &nbsp; Opportunity Signals</h2><Link href="/opportunities/demo">View all →</Link></div><div className={styles.signalList}>{opportunities.map(([score,title,copy],index) => <Link href="/opportunities/demo" key={title} className={styles.signalRow}><b className={`${styles.score} ${index===0?styles.hot:styles.warm}`}>{score}</b><div><strong>{title}</strong><span>{copy}</span></div><em>›</em></Link>)}</div></article>
+                    <article className={styles.insightPanel}><div className={styles.panelTitle}><h2>♙ &nbsp; Field Queue (Today)</h2><Link href="/field">Open Field Today →</Link></div><div className={styles.queue}>{fieldQueue.map(([tone,title,copy]) => <div key={title}><i className={styles[tone]} /><div><strong>{title}</strong><span>{copy}</span></div></div>)}</div></article>
                 </section>
+                <footer className={styles.footer}><span><strong>Survey Guru</strong> · Turning field reality into trusted intelligence.</span><span>Task Expert Systems · People | Places | Opportunities</span></footer>
             </div>
-        </main>
-    );
+        </section>
+    </div></main>;
 }
