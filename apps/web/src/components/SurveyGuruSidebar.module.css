@@ -1,0 +1,116 @@
+.side {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    padding: 0 14px 18px;
+    background: linear-gradient(180deg, rgba(6, 29, 43, .96) 0%, rgba(6, 29, 43, .93) 30%, rgba(6, 29, 43, .78) 50%, rgba(6, 29, 43, .62) 66%, #061d2b 100%);
+    border-right: 1px solid #154052;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sidebarTop {
+    --sidebar-top-offset: 4px;
+    position: relative;
+    z-index: 3;
+    transform: translateY(var(--sidebar-top-offset));
+}
+
+.brand {
+    position: relative;
+    z-index: 3;
+    height: 154px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    margin-top: 0;
+    padding: 0;
+}
+
+.brand img {
+    display: block;
+    width: 100%;
+    max-width: 194px;
+    height: 148px;
+    object-fit: contain;
+    object-position: center top;
+    filter: drop-shadow(0 8px 16px rgba(0, 238, 192, .14));
+}
+
+.nav {
+    display: grid;
+    gap: 7px;
+    position: relative;
+    z-index: 3;
+    margin-top: 20px;
+}
+
+.nav a {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 13px 14px;
+    border-radius: 9px;
+    text-decoration: none;
+    color: #d4e1df;
+    font-size: .8rem;
+}
+
+.nav a:hover,
+.nav .active {
+    background: linear-gradient(90deg, #0d7568, #0d4f5f);
+    color: #fff;
+}
+
+.nav .active {
+    box-shadow: inset 3px 0 #18efbd;
+}
+
+.tableMountain {
+    position: absolute;
+    z-index: 1;
+    left: -20px;
+    right: -20px;
+    top: 31%;
+    bottom: 70px;
+    background: linear-gradient(180deg, #061d2b 0%, rgba(6, 29, 43, .94) 5%, rgba(6, 29, 43, .72) 14%, rgba(6, 29, 43, .30) 29%, rgba(6, 29, 43, .06) 46%, rgba(6, 29, 43, .03) 66%, rgba(6, 29, 43, .42) 84%, #061d2b 100%), linear-gradient(90deg, #061d2b 0%, rgba(6, 29, 43, .72) 5%, rgba(6, 29, 43, .10) 20%, rgba(6, 29, 43, .04) 72%, rgba(6, 29, 43, .72) 95%, #061d2b 100%), url('/brand/table-mountain-sidebar.png') 50% 58%/cover no-repeat;
+    opacity: .98;
+    filter: saturate(.92) contrast(1.05);
+}
+
+@media (max-width: 1050px) {
+    .side {
+        padding: 0 14px 18px;
+    }
+
+    .brand {
+        height: 78px;
+        padding: 0;
+    }
+
+    .brand img {
+        height: 72px;
+        max-width: 68px;
+    }
+
+    .nav {
+        margin-top: 8px;
+    }
+
+    .nav span,
+    .tableMountain {
+        display: none;
+    }
+
+    .nav a {
+        justify-content: center;
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 720px) {
+    .side {
+        display: none;
+    }
+}
