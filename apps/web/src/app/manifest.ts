@@ -7,9 +7,16 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'TES field survey, coverage and outlet intelligence platform.',
     start_url: '/',
     display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#111827',
+    background_color: '#07131f',
+    theme_color: '#07131f',
     orientation: 'any',
-    icons: []
+    icons: [
+      {
+        src: '/survey-guru-icon.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
+        purpose: 'any'
+      }
+    ]
   };
 }
