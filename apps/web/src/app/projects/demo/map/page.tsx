@@ -4,7 +4,8 @@ import styles from './project-map.module.css';
 
 const metrics=[['⌖','1,846','Verified outlets'],['◔','72%','Reconciled'],['▥','118 km','Outstanding'],['◷','41','Awaiting QA']];
 const opportunities=[['74','Retail Cluster 03 – Dobsonville','74 priority-profile outlets'],['32','Growth Corridor – Main Road','32 potential outlets'],['18','Underserved Area – Meadowlands','18 high-potential outlets']];
-const fieldQueue=[['red','Dobsonville West','18.6 km search gap · Team 04'],['amber','Meadowlands','12 outlet verifications · Team 02'],['amber','Orlando East','Evidence outstanding · Team 06'],['green','Pimville','Start area · Team 03']];
+type QueueTone='red'|'amber'|'green';
+const fieldQueue:ReadonlyArray<readonly [QueueTone,string,string]>=[['red','Dobsonville West','18.6 km search gap · Team 04'],['amber','Meadowlands','12 outlet verifications · Team 02'],['amber','Orlando East','Evidence outstanding · Team 06'],['green','Pimville','Start area · Team 03']];
 
 export default function ProjectMapPage(){return <main className={styles.page}><div className={styles.shell}>
 <aside className={styles.side}><div className={styles.brand}><img src="/brand/survey-guru-symbol.png" alt="Survey Guru"/></div><nav className={styles.nav}><Link href="/dashboard">⌂ <span>Dashboard</span></Link><Link className={styles.active} href="/projects/demo/map">◇ <span>Project Map</span></Link><Link href="/field">◎ <span>Field Today</span></Link><Link href="/field/map">⌖ <span>Field Live Map</span></Link><Link href="/opportunities/demo">✦ <span>Opportunities</span></Link><a href="#evidence">▤ <span>Evidence & QA</span></a></nav><div className={styles.tableMountain} aria-hidden="true"/><div className={styles.sideStory}><strong>Real places.<br/>Real data.<br/>Real opportunities.</strong><span>A Task Expert Systems product</span></div></aside>
