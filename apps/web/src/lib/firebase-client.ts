@@ -1,4 +1,4 @@
-import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
+import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -16,9 +16,23 @@ export function isFirebaseClientConfigured(): boolean {
   return requiredKeys.every((key) => Boolean(firebaseConfig[key]));
 }
 
-export function getFirebaseClientApp(): FirebaseApp | null {
+function getValidatedFirebaseConfig(): FirebaseOptions | null {
   if (!isFirebaseClientConfigured()) return null;
-  return getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+  return {
+    apiKey: firebaseConfig.apiKey!,
+    authDomain: firebaseConfig.authDomain!,
+    projectId: firebaseConfig.projectId!,
+    appId: firebaseConfig.appId!,
+    ...(firebaseConfig.storageBucket ? { storageBucket: firebaseConfig.storageBucket } : {}),
+    ...(firebaseConfig.messagingSenderId ? { messagingSenderId: firebaseConfig.messagingSenderId } : {})
+  };
+}
+
+export function getFirebaseClientApp(): FirebaseApp | null {
+  const config = getValidatedFirebaseConfig();
+  if (!config) return null;
+  return getApps().length > 0 ? getApp() : initializeApp(config);
 }
 
 export function getFirebaseClientAuth(): Auth | null {
