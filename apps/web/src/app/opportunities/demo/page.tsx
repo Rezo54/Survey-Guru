@@ -1,0 +1,19 @@
+import Link from 'next/link';
+import styles from './opportunity.module.css';
+
+const stages = [
+  ['Finding','74 verified outlets now match the priority profile.'],
+  ['Evidence','Search coverage is reconciled across the core cluster; the western pocket remains incomplete.'],
+  ['Meaning','Outlet density and category potential are strengthening together rather than appearing as isolated discoveries.'],
+  ['Opportunity','Cluster 03 is becoming a credible growth pocket with enough evidence to justify focused validation.'],
+  ['Action','Finish the western search gap, validate the priority outlets, then assess the distribution response.'],
+];
+
+export default function OpportunityDemoPage(){return <main className={styles.page}>
+  <header className={styles.header}><div><p className={styles.eyebrow}>Survey Guru Story · Opportunity 03</p><h1>From field evidence<br/>to a growth case.</h1><p>Story creates understanding. Explore creates conviction.</p></div><Link className={styles.back} href="/dashboard">← Dashboard</Link></header>
+  <section className={styles.hero}><div><span className={styles.badge}>HIGH OPPORTUNITY</span><h2>Dobsonville growth cluster</h2><p>The market picture is moving from discovery to a defensible opportunity. The evidence is strong enough to focus attention—but not yet complete enough to skip the remaining search.</p></div><div className={styles.heroMetric}><strong>74</strong><span>priority-profile outlets</span><small>312 across all current clusters</small></div></section>
+  <section className={styles.story}>{stages.map(([stage,copy],i)=><article key={stage}><span>{String(i+1).padStart(2,'0')}</span><div><p className={styles.eyebrow}>{stage}</p><h3>{copy}</h3></div></article>)}</section>
+  <section className={styles.explore}><div className={styles.exploreHead}><div><p className={styles.eyebrow}>Explore the evidence</p><h2>See why the opportunity exists.</h2></div><span>72% searched</span></div><div className={styles.map}><div className={styles.grid}/><div className={`${styles.road} ${styles.r1}`}/><div className={`${styles.road} ${styles.r2}`}/><div className={`${styles.road} ${styles.r3}`}/><div className={styles.covered}/><div className={styles.partial}/><div className={`${styles.pulse} ${styles.p1}`}><b>74</b><small>priority outlets</small></div><div className={`${styles.pulse} ${styles.p2}`}><b>03</b><small>cluster</small></div><div className={styles.gap}>Western pocket · evidence incomplete</div></div><div className={styles.signals}><div><strong>↑ Outlet density</strong><span>Verified outlets are concentrating inside the cluster.</span></div><div><strong>↑ Category potential</strong><span>Observed opportunity is strengthening across multiple visits.</span></div><div><strong>✓ Evidence reconciled</strong><span>Known search evidence is separated from unknown geography.</span></div></div></section>
+  <section className={styles.decision}><div><p className={styles.eyebrow}>Recommended next move</p><h2>Complete the evidence before changing the network.</h2><p>Finish the remaining search, validate the 74 priority outlets and preserve the evidence trail. Once confirmed, this opportunity becomes ready for distribution-response analysis.</p></div><div className={styles.actions}><Link href="/field/map">Finish field validation →</Link><Link href="/projects/demo/map">Explore coverage</Link></div></section>
+  <footer><strong>Capture truth → Reveal opportunity → Tell the story.</strong><span>Task Expert Systems</span></footer>
+</main>}
