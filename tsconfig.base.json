@@ -10,11 +10,10 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "Bundler",
-    "baseUrl": ".",
     "paths": {
-      "@survey-guru/domain": ["packages/domain/src/index.ts"],
-      "@survey-guru/capabilities": ["packages/capabilities/src/index.ts"],
-      "@survey-guru/api-client": ["packages/api-client/src/index.ts"]
+      "@survey-guru/domain": ["./packages/domain/src/index.ts"],
+      "@survey-guru/capabilities": ["./packages/capabilities/src/index.ts"],
+      "@survey-guru/api-client": ["./packages/api-client/src/index.ts"]
     }
   }
 }
