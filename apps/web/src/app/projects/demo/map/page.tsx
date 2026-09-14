@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import SurveyGuruSidebarFooter from '../../../../components/SurveyGuruSidebarFooter';
 import ProjectGoogleMap from './ProjectGoogleMap';
 import styles from './project-map.module.css';
 
@@ -45,11 +46,7 @@ export default function ProjectMapPage() {
                     </div>
 
                     <div className={styles.tableMountain} aria-hidden="true" />
-
-                    <div className={styles.sideStory}>
-                        <strong>Real places.<br />Real data.<br />Real opportunities.</strong>
-                        <span>A Task Expert Systems product</span>
-                    </div>
+                    <SurveyGuruSidebarFooter />
                 </aside>
 
                 <section className={styles.main}>
