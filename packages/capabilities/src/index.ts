@@ -8,14 +8,19 @@ export interface RuntimeCapabilities {
   durableBackgroundSync: boolean;
 }
 
+/**
+ * Report only capabilities that are implemented and evidenced in the current
+ * checkpoint. Packaging the PWA with Capacitor does not by itself prove native
+ * background location or durable background sync.
+ */
 export function detectRuntimeCapabilities(runtime: SurveyGuruRuntime): RuntimeCapabilities {
   if (runtime === 'android') {
     return {
       runtime,
       camera: true,
       offlineStore: true,
-      backgroundLocation: true,
-      durableBackgroundSync: true
+      backgroundLocation: false,
+      durableBackgroundSync: false
     };
   }
 
