@@ -1,0 +1,15 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Survey Guru protected business data is API-only by default.
+    // Firebase Admin SDK operations run in the trusted server environment and
+    // are not authorised by these client rules.
+    //
+    // Do not add a broad authenticated-user rule here. Any future direct-client
+    // exception must be narrowly scoped, documented and security-tested.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
