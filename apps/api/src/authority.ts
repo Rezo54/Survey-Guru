@@ -84,13 +84,24 @@ export async function resolveAuthority(identity: AuthenticatedIdentity): Promise
     (permission): permission is SurveyGuruPermission => typeof permission === 'string',
   );
 
+  const projectAccess = await firestore
+    .collection('projectMemberships')
+    .where('userId', '==', identity.uid)
+    .where('workspaceId', '==', workspaceId)
+    .where('status', '==', 'active')
+    .get();
+
+  const projectIds = projectAccess.docs
+    .map((document) => document.get('projectId'))
+    .filter((projectId): projectId is string => typeof projectId === 'string');
+
   return {
     identity,
     workspaceId,
     membershipId: membership.id,
     roleKey,
     permissions: new Set(permissions),
-    projectIds: new Set<string>(),
+    projectIds: new Set(projectIds),
     assignmentIds: new Set<string>(),
   };
 }
