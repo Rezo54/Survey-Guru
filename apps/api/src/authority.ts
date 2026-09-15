@@ -27,73 +27,41 @@ export class AuthorisationError extends Error {
   statusCode = 403;
 }
 
-export function requirePermission(
-  authority: AuthorityContext,
-  permission: SurveyGuruPermission,
-): void {
-  if (!authority.permissions.has(permission)) {
-    throw new AuthorisationError(`Permission required: ${permission}`);
-  }
+export function requirePermission(authority: AuthorityContext, permission: SurveyGuruPermission): void {
+  if (!authority.permissions.has(permission)) throw new AuthorisationError(`Permission required: ${permission}`);
 }
 
 export function requireProjectScope(authority: AuthorityContext, projectId: string): void {
-  if (!authority.projectIds.has(projectId)) {
-    throw new AuthorisationError('Project is outside the authorised scope.');
-  }
+  if (!authority.projectIds.has(projectId)) throw new AuthorisationError('Project is outside the authorised scope.');
 }
 
 export function requireAssignmentScope(authority: AuthorityContext, assignmentId: string): void {
-  if (!authority.assignmentIds.has(assignmentId)) {
-    throw new AuthorisationError('Assignment is outside the authorised scope.');
-  }
+  if (!authority.assignmentIds.has(assignmentId)) throw new AuthorisationError('Assignment is outside the authorised scope.');
 }
 
 export async function resolveAuthority(identity: AuthenticatedIdentity): Promise<AuthorityContext> {
   const { firestore } = getFirebaseAdminServices();
   const user = await firestore.collection('users').doc(identity.uid).get();
+  if (!user.exists || user.get('status') !== 'active') throw new AuthorisationError('No active Survey Guru user is resolved.');
 
-  if (!user.exists || user.get('status') !== 'active') {
-    throw new AuthorisationError('No active Survey Guru user is resolved.');
-  }
-
-  const memberships = await firestore
-    .collection('workspaceMemberships')
-    .where('userId', '==', identity.uid)
-    .where('status', '==', 'active')
-    .limit(1)
-    .get();
-
+  const memberships = await firestore.collection('workspaceMemberships').where('userId', '==', identity.uid).where('status', '==', 'active').limit(1).get();
   const membership = memberships.docs[0];
-  if (!membership) {
-    throw new AuthorisationError('No active Survey Guru workspace membership is resolved.');
-  }
+  if (!membership) throw new AuthorisationError('No active Survey Guru workspace membership is resolved.');
 
   const workspaceId = membership.get('workspaceId');
   const roleKey = membership.get('roleKey');
-  if (typeof workspaceId !== 'string' || typeof roleKey !== 'string') {
-    throw new AuthorisationError('Workspace membership is invalid.');
-  }
+  if (typeof workspaceId !== 'string' || typeof roleKey !== 'string') throw new AuthorisationError('Workspace membership is invalid.');
 
   const role = await firestore.collection('roleDefinitions').doc(roleKey).get();
   const permissionValues: unknown = role.get('permissions');
-  if (!role.exists || !Array.isArray(permissionValues)) {
-    throw new AuthorisationError('Workspace role is not resolved.');
-  }
+  if (!role.exists || !Array.isArray(permissionValues)) throw new AuthorisationError('Workspace role is not resolved.');
+  const permissions = permissionValues.filter((permission): permission is SurveyGuruPermission => typeof permission === 'string');
 
-  const permissions = permissionValues.filter(
-    (permission): permission is SurveyGuruPermission => typeof permission === 'string',
-  );
+  const projectAccess = await firestore.collection('projectMemberships').where('userId', '==', identity.uid).where('workspaceId', '==', workspaceId).where('status', '==', 'active').get();
+  const projectIds = projectAccess.docs.map((document) => document.get('projectId')).filter((projectId): projectId is string => typeof projectId === 'string');
 
-  const projectAccess = await firestore
-    .collection('projectMemberships')
-    .where('userId', '==', identity.uid)
-    .where('workspaceId', '==', workspaceId)
-    .where('status', '==', 'active')
-    .get();
-
-  const projectIds = projectAccess.docs
-    .map((document) => document.get('projectId'))
-    .filter((projectId): projectId is string => typeof projectId === 'string');
+  const assignmentAccess = await firestore.collection('assignments').where('assignedUserId', '==', identity.uid).where('workspaceId', '==', workspaceId).where('status', '==', 'active').get();
+  const assignmentIds = assignmentAccess.docs.filter((document) => projectIds.includes(document.get('projectId'))).map((document) => document.id);
 
   return {
     identity,
@@ -102,6 +70,6 @@ export async function resolveAuthority(identity: AuthenticatedIdentity): Promise
     roleKey,
     permissions: new Set(permissions),
     projectIds: new Set(projectIds),
-    assignmentIds: new Set<string>(),
+    assignmentIds: new Set(assignmentIds),
   };
 }
