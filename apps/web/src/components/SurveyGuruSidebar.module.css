@@ -2,9 +2,10 @@
     position: sticky;
     top: 0;
     height: 100vh;
+    box-sizing: border-box;
     padding: 0 14px 18px;
-    background: linear-gradient(180deg, rgba(6, 29, 43, .96) 0%, rgba(6, 29, 43, .93) 30%, rgba(6, 29, 43, .78) 50%, rgba(6, 29, 43, .62) 66%, #061d2b 100%);
-    border-right: 1px solid #154052;
+    background: linear-gradient(180deg, rgba(4, 67, 64, .99) 0%, rgba(3, 77, 72, .98) 42%, rgba(3, 62, 60, .98) 100%);
+    border-right: 1px solid rgba(114, 211, 190, .2);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -13,6 +14,7 @@
 .sidebarTop {
     position: relative;
     z-index: 3;
+    flex: 0 0 auto;
 }
 
 .brand {
@@ -36,32 +38,72 @@
 }
 
 .nav {
-    display: grid;
-    gap: 7px;
     position: relative;
     z-index: 3;
+    display: flex;
+    flex-direction: column;
     margin-top: 4px;
 }
 
+.navGroup {
+    display: grid;
+    gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(192, 239, 228, .26);
+}
+
+.navGroup:first-child {
+    padding-top: 0;
+}
+
+.navGroup:last-child {
+    border-bottom: 0;
+}
+
 .nav a {
-    display: flex;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
     gap: 12px;
     align-items: center;
-    padding: 13px 14px;
+    width: 100%;
+    height: 44px;
+    padding: 0 12px;
+    border: 1px solid transparent;
     border-radius: 9px;
     text-decoration: none;
-    color: #d4e1df;
-    font-size: .8rem;
+    color: #edf8f5;
+    font-size: .78rem;
+    font-weight: 650;
+    line-height: 1;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.nav a:hover,
+.icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: #f4fffc;
+    font-size: 1.08rem;
+    line-height: 1;
+}
+
+.label {
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.nav a:hover {
+    background: rgba(20, 153, 133, .24);
+    border-color: rgba(100, 224, 195, .12);
+}
+
 .nav .active {
-    background: linear-gradient(90deg, #0d7568, #0d4f5f);
+    background: linear-gradient(90deg, rgba(22, 151, 132, .72), rgba(19, 130, 119, .56));
+    border-color: rgba(110, 238, 207, .12);
     color: #fff;
-}
-
-.nav .active {
-    box-shadow: inset 3px 0 #18efbd;
+    box-shadow: none;
 }
 
 .tableMountain {
@@ -69,21 +111,21 @@
     z-index: 1;
     left: -20px;
     right: -20px;
-    top: 31%;
+    top: 38%;
     bottom: 70px;
-    background: linear-gradient(180deg, #061d2b 0%, rgba(6, 29, 43, .94) 5%, rgba(6, 29, 43, .72) 14%, rgba(6, 29, 43, .30) 29%, rgba(6, 29, 43, .06) 46%, rgba(6, 29, 43, .03) 66%, rgba(6, 29, 43, .42) 84%, #061d2b 100%), linear-gradient(90deg, #061d2b 0%, rgba(6, 29, 43, .72) 5%, rgba(6, 29, 43, .10) 20%, rgba(6, 29, 43, .04) 72%, rgba(6, 29, 43, .72) 95%, #061d2b 100%), url('/brand/table-mountain-sidebar.png') 50% 58%/cover no-repeat;
-    opacity: .98;
-    filter: saturate(.92) contrast(1.05);
+    background: linear-gradient(180deg, rgba(3, 62, 60, .98) 0%, rgba(3, 62, 60, .76) 18%, rgba(3, 62, 60, .22) 45%, rgba(3, 62, 60, .72) 84%, rgba(3, 62, 60, .98) 100%), url('/brand/table-mountain-sidebar.png') 50% 58%/cover no-repeat;
+    opacity: .24;
+    filter: saturate(.75) contrast(1.02);
+    pointer-events: none;
 }
 
 @media (max-width: 1050px) {
     .side {
-        padding: 0 14px 18px;
+        padding: 0 10px 18px;
     }
 
     .brand {
         height: 78px;
-        padding: 0;
     }
 
     .brand img {
@@ -95,14 +137,21 @@
         margin-top: 8px;
     }
 
-    .nav span,
+    .navGroup {
+        gap: 3px;
+        padding: 6px 0;
+    }
+
+    .label,
     .tableMountain {
         display: none;
     }
 
     .nav a {
-        justify-content: center;
-        font-size: 1rem;
+        grid-template-columns: 1fr;
+        justify-items: center;
+        height: 42px;
+        padding: 0;
     }
 }
 
