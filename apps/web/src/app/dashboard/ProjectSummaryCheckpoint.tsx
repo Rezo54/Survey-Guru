@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { getFirebaseClientAuth } from '../../lib/firebase-client';
 
@@ -40,49 +40,44 @@ function waitForFirebaseUser(): Promise<User | null> {
 
 export default function ProjectSummaryCheckpoint() {
   const [result, setResult] = useState<ProjectSummary | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  async function loadProjectSummary() {
-    setBusy(true);
-    try {
-      const user = await waitForFirebaseUser();
-      if (!user) {
-        setResult({ error: 'not_signed_in', message: 'No persisted Firebase session was found. Sign in at /auth/dev first.' });
-        return;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjectSummary() {
+      try {
+        const user = await waitForFirebaseUser();
+        if (!user) {
+          if (!cancelled) setResult({ error: 'not_signed_in', message: 'Sign in required for live project data.' });
+          return;
+        }
+
+        const token = await user.getIdToken();
+        const apiOrigin = process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080';
+        const response = await fetch(`${apiOrigin}/api/v1/projects/prj_soweto_retail_universe/summary`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await response.json() as ProjectSummary;
+        if (!cancelled) setResult(body);
+      } catch (error) {
+        if (!cancelled) {
+          setResult({ error: 'request_failed', message: error instanceof Error ? error.message : 'Request failed.' });
+        }
       }
-
-      const token = await user.getIdToken();
-      const apiOrigin = process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080';
-      const response = await fetch(`${apiOrigin}/api/v1/projects/prj_soweto_retail_universe/summary`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const body = await response.json() as ProjectSummary;
-      setResult(body);
-    } catch (error) {
-      setResult({ error: 'request_failed', message: error instanceof Error ? error.message : 'Request failed.' });
-    } finally {
-      setBusy(false);
     }
-  }
+
+    void loadProjectSummary();
+    return () => { cancelled = true; };
+  }, []);
 
   const summary = result?.project?.summary;
 
+  if (!result) return <small>Loading authorised project intelligence…</small>;
+  if (!result.project) return <small>Live project data unavailable · {result.message ?? result.error}</small>;
+
   return (
-    <div>
-      <button type="button" onClick={loadProjectSummary} disabled={busy}>
-        {busy ? 'Loading authorised project…' : 'Load authorised Soweto project'}
-      </button>
-      {result ? (
-        <div style={{ marginTop: 12 }}>
-          {result.project ? (
-            <small>
-              Firestore/API · {result.project.name} · {summary?.searchedPercent ?? '—'}% searched · {summary?.outstandingKm ?? '—'} km outstanding · {summary?.verifiedPriorityOutlets ?? '—'} verified outlets · project scope {result.authority?.projectScoped ? 'verified' : 'not verified'}
-            </small>
-          ) : (
-            <small>{result.error}: {result.message}</small>
-          )}
-        </div>
-      ) : null}
-    </div>
+    <small>
+      Live Firestore/API · {summary?.searchedPercent ?? '—'}% searched · {summary?.outstandingKm ?? '—'} km outstanding · {summary?.verifiedPriorityOutlets ?? '—'} verified outlets · project scope {result.authority?.projectScoped ? 'verified' : 'not verified'}
+    </small>
   );
 }
