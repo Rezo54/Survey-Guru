@@ -8,61 +8,22 @@ import s from './field-map.module.css';
 
 type Session = { id: string; areaName?: string; state?: string; coverageState?: string; searchedKm?: number; partialKm?: number; unknownKm?: number; queuedEvidenceCount?: number };
 type MovementEvent = { id: string; capturedAt: string; accuracyMetres: number; source: string; validationStatus: string; validationReason?: string };
-type EvidenceSummary = { count: number; acceptedCount: number; rejectedCount: number; derivationStatus: string };
+type TraversalSummary = { acceptedPointCount: number; segmentCount: number; supportedSegmentCount: number; supportedTraversalKm: number; derivationStatus: string; coverageDerived: boolean; coverageReason: string };
+type EvidenceSummary = { count: number; acceptedCount: number; rejectedCount: number; coverageState: string; searchedKm: number; traversal: TraversalSummary };
 
-function waitForFirebaseUser(): Promise<User | null> {
-  const auth = getFirebaseClientAuth(); if (!auth) return Promise.resolve(null); if (auth.currentUser) return Promise.resolve(auth.currentUser);
-  return new Promise((resolve) => { const unsubscribe = onAuthStateChanged(auth, (user) => { unsubscribe(); resolve(user); }); });
-}
-
+function waitForFirebaseUser(): Promise<User | null> { const auth = getFirebaseClientAuth(); if (!auth) return Promise.resolve(null); if (auth.currentUser) return Promise.resolve(auth.currentUser); return new Promise((resolve) => { const unsubscribe = onAuthStateChanged(auth, (user) => { unsubscribe(); resolve(user); }); }); }
 async function getToken() { const user = await waitForFirebaseUser(); if (!user) throw new Error('Sign in required for field capture.'); return user.getIdToken(); }
 function apiOrigin() { return process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080'; }
 
 export default function AuthorisedSearchSession() {
   const searchParams = useSearchParams(); const sessionId = searchParams.get('session');
   const [session, setSession] = useState<Session | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [movement, setMovement] = useState<MovementEvent[]>([]); const [evidence, setEvidence] = useState<EvidenceSummary | null>(null);
-
-  async function callSession(path = '') {
-    if (!sessionId) throw new Error('Open this map from an authorised Field Today assignment.');
-    const token = await getToken();
-    const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}${path}`, { method: path ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}` } });
-    const body = await response.json() as { searchSession?: Session; message?: string };
-    if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'Store Coverage Search session unavailable.');
-    return body.searchSession;
-  }
-
-  async function loadMovement() {
-    if (!sessionId) return;
-    const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { headers: { Authorization: `Bearer ${token}` } });
-    const body = await response.json() as { movementEvents?: MovementEvent[]; evidence?: EvidenceSummary; message?: string };
-    if (!response.ok) throw new Error(body.message ?? 'Movement evidence unavailable.'); setMovement(body.movementEvents ?? []); setEvidence(body.evidence ?? null);
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() { try { const loaded = await callSession(); if (!cancelled) { setSession(loaded); await loadMovement(); } } catch (cause) { if (!cancelled) setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search session unavailable.'); } }
-    void load(); return () => { cancelled = true; };
-  }, [sessionId]);
-
-  async function startSearch() {
-    setBusy(true); setMessage(null);
-    try { setSession(await callSession('/start')); } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search could not be started.'); } finally { setBusy(false); }
-  }
-
-  async function recordLocation() {
-    if (!sessionId || !navigator.geolocation) { setMessage('Foreground location is not available in this browser.'); return; }
-    setBusy(true); setMessage('Requesting current foreground location…');
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      try {
-        const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ capturedAt: new Date(position.timestamp).toISOString(), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy, source: 'pwa_foreground' }) });
-        const body = await response.json() as { movementEvent?: MovementEvent; message?: string };
-        if (!response.ok || !body.movementEvent) throw new Error(body.message ?? 'Movement evidence could not be recorded.');
-        const accepted = body.movementEvent.validationStatus === 'ACCEPTED'; setMessage(accepted ? `Evidence accepted · accuracy ${Math.round(body.movementEvent.accuracyMetres)} m · coverage unchanged until a sufficient sequence exists.` : `Evidence excluded · ${body.movementEvent.validationReason ?? body.movementEvent.validationStatus}.`); await loadMovement(); setSession(await callSession());
-      } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Movement evidence could not be recorded.'); } finally { setBusy(false); }
-    }, (error) => { setMessage(error.message || 'Current location could not be read.'); setBusy(false); }, { enableHighAccuracy: true, maximumAge: 15_000, timeout: 15_000 });
-  }
-
+  async function callSession(path = '') { if (!sessionId) throw new Error('Open this map from an authorised Field Today assignment.'); const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}${path}`, { method: path ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}` } }); const body = await response.json() as { searchSession?: Session; message?: string }; if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'Store Coverage Search session unavailable.'); return body.searchSession; }
+  async function loadMovement() { if (!sessionId) return; const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { headers: { Authorization: `Bearer ${token}` } }); const body = await response.json() as { movementEvents?: MovementEvent[]; evidence?: EvidenceSummary; message?: string }; if (!response.ok) throw new Error(body.message ?? 'Movement evidence unavailable.'); setMovement(body.movementEvents ?? []); setEvidence(body.evidence ?? null); }
+  useEffect(() => { let cancelled = false; async function load() { try { const loaded = await callSession(); if (!cancelled) { setSession(loaded); await loadMovement(); } } catch (cause) { if (!cancelled) setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search session unavailable.'); } } void load(); return () => { cancelled = true; }; }, [sessionId]);
+  async function startSearch() { setBusy(true); setMessage(null); try { setSession(await callSession('/start')); } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search could not be started.'); } finally { setBusy(false); } }
+  async function recordLocation() { if (!sessionId || !navigator.geolocation) { setMessage('Foreground location is not available in this browser.'); return; } setBusy(true); setMessage('Requesting current foreground location…'); navigator.geolocation.getCurrentPosition(async (position) => { try { const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ capturedAt: new Date(position.timestamp).toISOString(), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy, source: 'pwa_foreground' }) }); const body = await response.json() as { movementEvent?: MovementEvent; message?: string }; if (!response.ok || !body.movementEvent) throw new Error(body.message ?? 'Movement evidence could not be recorded.'); const accepted = body.movementEvent.validationStatus === 'ACCEPTED'; setMessage(accepted ? `Evidence accepted · accuracy ${Math.round(body.movementEvent.accuracyMetres)} m · coverage unchanged.` : `Evidence excluded · ${body.movementEvent.validationReason ?? body.movementEvent.validationStatus}.`); await loadMovement(); setSession(await callSession()); } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Movement evidence could not be recorded.'); } finally { setBusy(false); } }, (error) => { setMessage(error.message || 'Current location could not be read.'); setBusy(false); }, { enableHighAccuracy: true, maximumAge: 15_000, timeout: 15_000 }); }
   if (!session) return <section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{message ?? 'Loading authorised session…'}</strong></div></section>;
-  const active = session.state === 'ACTIVE_SEARCH'; const latest = movement[0];
-  return <><section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section><section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section><section className={s.action}><p className={s.eyebrow}>Authorised field state</p><h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2><p>{active ? 'Capture foreground movement as evidence while this PWA is in use. Each point is classified by the API; geography remains Unknown until a sufficient validated traversal sequence can support a conservative coverage derivation.' : 'Starting Store Coverage Search changes only the authorised session state. It does not manufacture coverage evidence.'}</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Store Coverage Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.secondary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Recording…' : 'Record current location'}</button></div>{message ? <p className={s.subtle}>{message}</p> : null}{evidence ? <p className={s.subtle}>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded · {evidence.derivationStatus.replaceAll('_', ' ').toLowerCase()}.</p> : null}{latest ? <p className={s.subtle}>Latest evidence: {new Date(latest.capturedAt).toLocaleTimeString()} · ±{Math.round(latest.accuracyMetres)} m · {latest.validationStatus}. No searched distance has been inferred.</p> : null}</section></>;
+  const active = session.state === 'ACTIVE_SEARCH'; const latest = movement[0]; const traversal = evidence?.traversal;
+  return <><section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section><section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section><section className={s.action}><p className={s.eyebrow}>Authorised field state</p><h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2><p>{active ? 'Capture foreground movement as evidence while this PWA is in use. The API can derive candidate traversal from a validated sequence, but traversal is not automatically treated as searched road or store coverage.' : 'Starting Store Coverage Search changes only the authorised session state. It does not manufacture coverage evidence.'}</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Store Coverage Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.secondary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Recording…' : 'Record current location'}</button></div>{message ? <p className={s.subtle}>{message}</p> : null}{evidence ? <p className={s.subtle}>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded.</p> : null}{traversal ? <p className={s.subtle}>Candidate traversal: {traversal.supportedTraversalKm.toFixed(3)} km across {traversal.supportedSegmentCount} supported segment{traversal.supportedSegmentCount === 1 ? '' : 's'} · {traversal.derivationStatus.replaceAll('_', ' ').toLowerCase()}. Coverage derived: no.</p> : null}{traversal ? <p className={s.subtle}>{traversal.coverageReason}</p> : null}{latest ? <p className={s.subtle}>Latest evidence: {new Date(latest.capturedAt).toLocaleTimeString()} · ±{Math.round(latest.accuracyMetres)} m · {latest.validationStatus}.</p> : null}</section></>;
 }
