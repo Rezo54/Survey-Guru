@@ -15,23 +15,30 @@ function waitForFirebaseUser(): Promise<User | null> {
 
 export default function AuthorisedSearchSession() {
   const searchParams = useSearchParams(); const sessionId = searchParams.get('session');
-  const [session, setSession] = useState<Session | null>(null); const [message, setMessage] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+
+  async function callSession(path = '') {
+    if (!sessionId) throw new Error('Open this map from an authorised Field Today assignment.');
+    const user = await waitForFirebaseUser(); if (!user) throw new Error('Sign in required for field capture.');
+    const token = await user.getIdToken(); const apiOrigin = process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080';
+    const response = await fetch(`${apiOrigin}/api/v1/search-sessions/${encodeURIComponent(sessionId)}${path}`, { method: path ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}` } });
+    const body = await response.json() as { searchSession?: Session; message?: string };
+    if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'Search session unavailable.');
+    return body.searchSession;
+  }
+
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      if (!sessionId) { setMessage('Open this map from an authorised Field Today assignment.'); return; }
-      try {
-        const user = await waitForFirebaseUser(); if (!user) throw new Error('Sign in required for field capture.');
-        const token = await user.getIdToken(); const apiOrigin = process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080';
-        const response = await fetch(`${apiOrigin}/api/v1/search-sessions/${encodeURIComponent(sessionId)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const body = await response.json() as { searchSession?: Session; message?: string };
-        if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'Search session unavailable.');
-        if (!cancelled) setSession(body.searchSession);
-      } catch (cause) { if (!cancelled) setMessage(cause instanceof Error ? cause.message : 'Search session unavailable.'); }
-    }
+    async function load() { try { const loaded = await callSession(); if (!cancelled) setSession(loaded); } catch (cause) { if (!cancelled) setMessage(cause instanceof Error ? cause.message : 'Search session unavailable.'); } }
     void load(); return () => { cancelled = true; };
   }, [sessionId]);
 
+  async function startSearch() {
+    setBusy(true); setMessage(null);
+    try { setSession(await callSession('/start')); } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Search could not be started.'); } finally { setBusy(false); }
+  }
+
   if (!session) return <section className={s.policy}><div><span>Persisted session</span><strong>{message ?? 'Loading authorised search session…'}</strong></div></section>;
-  return <><section className={s.policy}><div><span>Persisted session</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section><section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section></>;
+  const active = session.state === 'ACTIVE_SEARCH';
+  return <><section className={s.policy}><div><span>Persisted session</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section><section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section><section className={s.action}><p className={s.eyebrow}>Authorised field state</p><h2>{active ? 'Search is active' : 'Ready to record search evidence'}</h2><p>{active ? 'The persisted session is ACTIVE_SEARCH. Coverage remains unchanged until movement evidence is captured and validated.' : 'Starting search changes only the authorised session state. It does not manufacture coverage evidence.'}</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start search'}</button>{message ? <span className={s.secondary}>{message}</span> : null}</div></section></>;
 }
