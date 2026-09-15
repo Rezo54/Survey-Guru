@@ -19,7 +19,7 @@ app.setErrorHandler((error, _request, reply) => {
 });
 
 app.get('/health', async () => ({ service: 'survey-guru-api', status: 'ok', authority: 'api', firebaseConfigured: isFirebaseAdminConfigured() }));
-app.get('/api/v1/runtime', async () => ({ environment: process.env.SURVEY_GURU_ENV ?? 'local', authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured', protectedBusinessEndpoints: 'project-assignment-and-search-session-authorisation' }));
+app.get('/api/v1/runtime', async () => ({ environment: process.env.SURVEY_GURU_ENV ?? 'local', authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured', protectedBusinessEndpoints: 'project-assignment-search-session-and-movement-authorisation' }));
 app.get('/api/v1/me', async (request) => { const identity = await verifyRequestIdentity(request); const authority = await resolveAuthority(identity); return { identity, authority: { status: 'authorised', workspaceMembership: { id: authority.membershipId, workspaceId: authority.workspaceId, roleKey: authority.roleKey }, permissions: [...authority.permissions], projectIds: [...authority.projectIds], assignmentIds: [...authority.assignmentIds], resourceScope: 'workspace' } }; });
 
 app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/summary', async (request) => {
@@ -52,7 +52,7 @@ async function getAuthorisedSession(request: Parameters<typeof verifyRequestIden
   const assignmentId = session.get('assignmentId'); const projectId = session.get('projectId');
   if (typeof assignmentId !== 'string' || typeof projectId !== 'string') throw new AuthorisationError('Search session scope is invalid.');
   requireAssignmentScope(authority, assignmentId); requireProjectScope(authority, projectId);
-  return { identity, authority, firestore, session };
+  return { identity, authority, firestore, session, assignmentId, projectId };
 }
 
 app.get<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId', async (request) => {
@@ -67,6 +67,32 @@ app.post<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId/
   if (state !== 'ACTIVE_SEARCH') await session.ref.update({ state: 'ACTIVE_SEARCH', startedAt: session.get('startedAt') ?? new Date().toISOString(), updatedAt: new Date().toISOString() });
   const updated = await firestore.collection('searchSessions').doc(session.id).get();
   return { searchSession: { id: updated.id, ...updated.data() }, authority: { permission: 'field.capture', assignmentScoped: true, projectScoped: true, identityScoped: true, workspaceId: authority.workspaceId } };
+});
+
+type MovementBody = { capturedAt?: unknown; latitude?: unknown; longitude?: unknown; accuracyMetres?: unknown; source?: unknown };
+function finiteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
+
+app.post<{ Params: { sessionId: string }; Body: MovementBody }>('/api/v1/search-sessions/:sessionId/movement-events', async (request) => {
+  const { identity, authority, firestore, session, assignmentId, projectId } = await getAuthorisedSession(request, request.params.sessionId);
+  if (session.get('state') !== 'ACTIVE_SEARCH') throw new AuthorisationError('Movement evidence requires an active Store Coverage Search session.');
+  const { capturedAt, latitude, longitude, accuracyMetres, source } = request.body ?? {};
+  if (!finiteNumber(latitude) || latitude < -90 || latitude > 90 || !finiteNumber(longitude) || longitude < -180 || longitude > 180) throw new AuthorisationError('Movement coordinates are invalid.');
+  if (!finiteNumber(accuracyMetres) || accuracyMetres < 0 || accuracyMetres > 500) throw new AuthorisationError('Movement accuracy is invalid.');
+  if (typeof capturedAt !== 'string' || !Number.isFinite(Date.parse(capturedAt))) throw new AuthorisationError('Movement capture time is invalid.');
+  if (source !== 'pwa_foreground') throw new AuthorisationError('Movement source is not supported by this endpoint.');
+  const now = Date.now(); const capturedMs = Date.parse(capturedAt);
+  if (capturedMs > now + 60_000 || capturedMs < now - 24 * 60 * 60 * 1000) throw new AuthorisationError('Movement capture time is outside the accepted window.');
+  const eventRef = firestore.collection('movementEvents').doc(); const receivedAt = new Date(now).toISOString();
+  await eventRef.set({ workspaceId: authority.workspaceId, projectId, assignmentId, searchSessionId: session.id, userId: identity.uid, capturedAt: new Date(capturedMs).toISOString(), receivedAt, latitude, longitude, accuracyMetres, source: 'pwa_foreground', validationStatus: 'RECEIVED', environment: process.env.SURVEY_GURU_ENV ?? 'local' });
+  await session.ref.update({ queuedEvidenceCount: Number(session.get('queuedEvidenceCount') ?? 0) + 1, lastEvidenceAt: receivedAt, updatedAt: receivedAt });
+  return { movementEvent: { id: eventRef.id, capturedAt: new Date(capturedMs).toISOString(), accuracyMetres, source: 'pwa_foreground', validationStatus: 'RECEIVED' }, coverage: { state: session.get('coverageState') ?? 'UNCOVERED', changed: false, reason: 'Movement evidence is persisted for validation before coverage is derived.' }, authority: { permission: 'field.capture', assignmentScoped: true, projectScoped: true, identityScoped: true, workspaceId: authority.workspaceId } };
+});
+
+app.get<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId/movement-events', async (request) => {
+  const { authority, firestore, session } = await getAuthorisedSession(request, request.params.sessionId);
+  const snapshot = await firestore.collection('movementEvents').where('workspaceId', '==', authority.workspaceId).where('searchSessionId', '==', session.id).get();
+  const events = snapshot.docs.map((document) => ({ id: document.id, ...document.data() })).sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt))).slice(0, 25);
+  return { movementEvents: events, evidence: { count: events.length, coverageState: session.get('coverageState') ?? 'UNCOVERED', searchedKm: session.get('searchedKm') ?? 0, derivationStatus: 'NOT_DERIVED' }, authority: { permission: 'field.capture', identityScoped: true, workspaceId: authority.workspaceId } };
 });
 
 const port = Number(process.env.PORT ?? 8080); const host = process.env.HOST ?? '127.0.0.1'; app.listen({ port, host }).catch((error) => { app.log.error(error); process.exit(1); });
