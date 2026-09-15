@@ -24,10 +24,9 @@ export async function verifyRequestIdentity(request: FastifyRequest): Promise<Au
 
   try {
     const decoded = await getFirebaseAdminServices().auth.verifyIdToken(token, true);
-    return {
-      uid: decoded.uid,
-      email: decoded.email,
-    };
+    return decoded.email
+      ? { uid: decoded.uid, email: decoded.email }
+      : { uid: decoded.uid };
   } catch {
     throw new AuthenticationError('Identity token is invalid or revoked.');
   }
