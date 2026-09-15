@@ -7,7 +7,8 @@ import { getFirebaseClientAuth } from '../../../lib/firebase-client';
 import s from './field-map.module.css';
 
 type Session = { id: string; areaName?: string; state?: string; coverageState?: string; searchedKm?: number; partialKm?: number; unknownKm?: number; queuedEvidenceCount?: number };
-type MovementEvent = { id: string; capturedAt: string; accuracyMetres: number; source: string; validationStatus: string };
+type MovementEvent = { id: string; capturedAt: string; accuracyMetres: number; source: string; validationStatus: string; validationReason?: string };
+type EvidenceSummary = { count: number; acceptedCount: number; rejectedCount: number; derivationStatus: string };
 
 function waitForFirebaseUser(): Promise<User | null> {
   const auth = getFirebaseClientAuth(); if (!auth) return Promise.resolve(null); if (auth.currentUser) return Promise.resolve(auth.currentUser);
@@ -19,7 +20,7 @@ function apiOrigin() { return process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'ht
 
 export default function AuthorisedSearchSession() {
   const searchParams = useSearchParams(); const sessionId = searchParams.get('session');
-  const [session, setSession] = useState<Session | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [movement, setMovement] = useState<MovementEvent[]>([]);
+  const [session, setSession] = useState<Session | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [movement, setMovement] = useState<MovementEvent[]>([]); const [evidence, setEvidence] = useState<EvidenceSummary | null>(null);
 
   async function callSession(path = '') {
     if (!sessionId) throw new Error('Open this map from an authorised Field Today assignment.');
@@ -33,8 +34,8 @@ export default function AuthorisedSearchSession() {
   async function loadMovement() {
     if (!sessionId) return;
     const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { headers: { Authorization: `Bearer ${token}` } });
-    const body = await response.json() as { movementEvents?: MovementEvent[]; message?: string };
-    if (!response.ok) throw new Error(body.message ?? 'Movement evidence unavailable.'); setMovement(body.movementEvents ?? []);
+    const body = await response.json() as { movementEvents?: MovementEvent[]; evidence?: EvidenceSummary; message?: string };
+    if (!response.ok) throw new Error(body.message ?? 'Movement evidence unavailable.'); setMovement(body.movementEvents ?? []); setEvidence(body.evidence ?? null);
   }
 
   useEffect(() => {
@@ -56,12 +57,12 @@ export default function AuthorisedSearchSession() {
         const token = await getToken(); const response = await fetch(`${apiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ capturedAt: new Date(position.timestamp).toISOString(), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy, source: 'pwa_foreground' }) });
         const body = await response.json() as { movementEvent?: MovementEvent; message?: string };
         if (!response.ok || !body.movementEvent) throw new Error(body.message ?? 'Movement evidence could not be recorded.');
-        setMessage(`Evidence received · accuracy ${Math.round(body.movementEvent.accuracyMetres)} m · coverage unchanged pending validation.`); await loadMovement(); setSession(await callSession());
+        const accepted = body.movementEvent.validationStatus === 'ACCEPTED'; setMessage(accepted ? `Evidence accepted · accuracy ${Math.round(body.movementEvent.accuracyMetres)} m · coverage unchanged until a sufficient sequence exists.` : `Evidence excluded · ${body.movementEvent.validationReason ?? body.movementEvent.validationStatus}.`); await loadMovement(); setSession(await callSession());
       } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Movement evidence could not be recorded.'); } finally { setBusy(false); }
     }, (error) => { setMessage(error.message || 'Current location could not be read.'); setBusy(false); }, { enableHighAccuracy: true, maximumAge: 15_000, timeout: 15_000 });
   }
 
   if (!session) return <section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{message ?? 'Loading authorised session…'}</strong></div></section>;
   const active = session.state === 'ACTIVE_SEARCH'; const latest = movement[0];
-  return <><section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section><section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section><section className={s.action}><p className={s.eyebrow}>Authorised field state</p><h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2><p>{active ? 'Capture foreground movement as evidence while this PWA is in use. Each point is validated and persisted by the API; geography remains Unknown until sufficient traversal evidence is independently derived.' : 'Starting Store Coverage Search changes only the authorised session state. It does not manufacture coverage evidence.'}</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Store Coverage Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.secondary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Recording…' : 'Record current location'}</button></div>{message ? <p className={s.subtle}>{message}</p> : null}{latest ? <p className={s.subtle}>Latest evidence: {new Date(latest.capturedAt).toLocaleTimeString()} · ±{Math.round(latest.accuracyMetres)} m · {latest.validationStatus}. No searched distance has been inferred.</p> : null}</section></>;
+  return <><section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section><section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section><section className={s.action}><p className={s.eyebrow}>Authorised field state</p><h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2><p>{active ? 'Capture foreground movement as evidence while this PWA is in use. Each point is classified by the API; geography remains Unknown until a sufficient validated traversal sequence can support a conservative coverage derivation.' : 'Starting Store Coverage Search changes only the authorised session state. It does not manufacture coverage evidence.'}</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Store Coverage Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.secondary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Recording…' : 'Record current location'}</button></div>{message ? <p className={s.subtle}>{message}</p> : null}{evidence ? <p className={s.subtle}>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded · {evidence.derivationStatus.replaceAll('_', ' ').toLowerCase()}.</p> : null}{latest ? <p className={s.subtle}>Latest evidence: {new Date(latest.capturedAt).toLocaleTimeString()} · ±{Math.round(latest.accuracyMetres)} m · {latest.validationStatus}. No searched distance has been inferred.</p> : null}</section></>;
 }
