@@ -15,6 +15,12 @@ const activity = [
     ['Team 07 · Orlando East', 'Synced · evidence accepted'],
 ];
 
+const attention = [
+    ['Coverage gap', 'Dobsonville West', '18.6 km remains unknown', '/projects/demo/map'],
+    ['QA queue', '41 visits', 'Evidence requires review', '#evidence'],
+    ['Opportunity', 'Cluster 03', '74 verified priority outlets', '/opportunities/demo'],
+] as const;
+
 export default function DashboardPage() {
     return (
         <main className={styles.page}>
@@ -46,6 +52,11 @@ export default function DashboardPage() {
                                     <span>{l}</span><strong>{v}</strong><small>{n}</small>
                                 </article>
                             ))}
+                        </section>
+
+                        <section className={styles.panel} aria-label="Management attention">
+                            <div className={styles.panelHead}><div><p className={styles.eyebrow}>Management attention</p><h2>What needs action now</h2></div><span className={styles.status}>3 signals</span></div>
+                            <div className={styles.activity}>{attention.map(([kind,title,copy,href]) => <Link className={styles.link} href={href} key={kind}><strong>{kind} · {title}</strong><small>{copy} →</small></Link>)}</div>
                         </section>
 
                         <section className={styles.heroGrid}>
