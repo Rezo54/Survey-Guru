@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import { getFirebaseClientAuth } from '../../lib/firebase-client';
 
 type ProjectSummary = {
@@ -24,6 +25,19 @@ type ProjectSummary = {
   message?: string;
 };
 
+function waitForFirebaseUser(): Promise<User | null> {
+  const auth = getFirebaseClientAuth();
+  if (!auth) return Promise.resolve(null);
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+
+  return new Promise((resolve) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe();
+      resolve(user);
+    });
+  });
+}
+
 export default function ProjectSummaryCheckpoint() {
   const [result, setResult] = useState<ProjectSummary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,10 +45,9 @@ export default function ProjectSummaryCheckpoint() {
   async function loadProjectSummary() {
     setBusy(true);
     try {
-      const auth = getFirebaseClientAuth();
-      const user = auth?.currentUser;
+      const user = await waitForFirebaseUser();
       if (!user) {
-        setResult({ error: 'not_signed_in', message: 'Sign in at /auth/dev first.' });
+        setResult({ error: 'not_signed_in', message: 'No persisted Firebase session was found. Sign in at /auth/dev first.' });
         return;
       }
 
