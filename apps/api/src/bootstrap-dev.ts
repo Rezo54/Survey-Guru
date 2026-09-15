@@ -14,6 +14,8 @@ if ((process.env.SURVEY_GURU_ENV ?? 'local') !== 'dev') {
 const workspaceId = 'ws_tes_survey_guru_dev';
 const membershipId = `wsm_${uid}`;
 const roleKey = 'tes_super_admin';
+const projectId = 'prj_soweto_retail_universe';
+const projectMembershipId = `prjm_${projectId}_${uid}`;
 const { firestore } = getFirebaseAdminServices();
 const batch = firestore.batch();
 
@@ -64,6 +66,27 @@ batch.set(firestore.collection('workspaceMemberships').doc(membershipId), {
   environment: 'dev',
 }, { merge: true });
 
+batch.set(firestore.collection('projects').doc(projectId), {
+  workspaceId,
+  name: 'Soweto Retail Universe',
+  status: 'active',
+  environment: 'dev',
+  summary: {
+    searchedPercent: 72,
+    outstandingKm: 18.6,
+    verifiedPriorityOutlets: 74,
+    networkDecision: 'not-yet',
+  },
+}, { merge: true });
+
+batch.set(firestore.collection('projectMemberships').doc(projectMembershipId), {
+  userId: uid,
+  workspaceId,
+  projectId,
+  status: 'active',
+  environment: 'dev',
+}, { merge: true });
+
 await batch.commit();
 
 console.log(JSON.stringify({
@@ -72,4 +95,6 @@ console.log(JSON.stringify({
   workspaceId,
   membershipId,
   roleKey,
+  projectId,
+  projectMembershipId,
 }, null, 2));
