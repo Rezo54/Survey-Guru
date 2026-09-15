@@ -16,6 +16,7 @@ const membershipId = `wsm_${uid}`;
 const roleKey = 'tes_super_admin';
 const projectId = 'prj_soweto_retail_universe';
 const projectMembershipId = `prjm_${projectId}_${uid}`;
+const assignmentId = 'asg_dobsonville_west_team04';
 const { firestore } = getFirebaseAdminServices();
 const batch = firestore.batch();
 
@@ -87,6 +88,22 @@ batch.set(firestore.collection('projectMemberships').doc(projectMembershipId), {
   environment: 'dev',
 }, { merge: true });
 
+batch.set(firestore.collection('assignments').doc(assignmentId), {
+  workspaceId,
+  projectId,
+  assignedUserId: uid,
+  teamId: 'team_04',
+  areaName: 'Dobsonville West',
+  assignmentType: 'coverage_search',
+  status: 'active',
+  priority: 'priority',
+  evidenceState: 'unknown',
+  targetState: 'searched',
+  scheduledWindow: '08:00–10:30',
+  outstandingKm: 18.6,
+  environment: 'dev',
+}, { merge: true });
+
 await batch.commit();
 
 console.log(JSON.stringify({
@@ -97,4 +114,5 @@ console.log(JSON.stringify({
   roleKey,
   projectId,
   projectMembershipId,
+  assignmentId,
 }, null, 2));
