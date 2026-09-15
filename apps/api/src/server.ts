@@ -70,7 +70,7 @@ app.post<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId/
 });
 
 type MovementBody = { capturedAt?: unknown; latitude?: unknown; longitude?: unknown; accuracyMetres?: unknown; source?: unknown };
-type MovementPoint = { capturedAt?: unknown; latitude?: unknown; longitude?: unknown; accuracyMetres?: unknown; validationStatus?: unknown };
+type MovementPoint = { id?: string; capturedAt?: unknown; latitude?: unknown; longitude?: unknown; accuracyMetres?: unknown; validationStatus?: unknown };
 function finiteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
 function radians(value: number) { return value * Math.PI / 180; }
 function distanceMetres(a: MovementPoint, b: { latitude: number; longitude: number }) {
@@ -78,6 +78,18 @@ function distanceMetres(a: MovementPoint, b: { latitude: number; longitude: numb
   const earth = 6_371_000; const dLat = radians(b.latitude - a.latitude); const dLon = radians(b.longitude - a.longitude); const lat1 = radians(a.latitude); const lat2 = radians(b.latitude);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * earth * Math.asin(Math.sqrt(h));
+}
+function deriveTraversal(points: MovementPoint[]) {
+  const accepted = points.filter((point) => point.validationStatus === 'ACCEPTED' && typeof point.capturedAt === 'string' && finiteNumber(point.latitude) && finiteNumber(point.longitude)).sort((a, b) => Date.parse(String(a.capturedAt)) - Date.parse(String(b.capturedAt)));
+  const segments: Array<{ fromEventId?: string; toEventId?: string; metres: number; elapsedSeconds: number; status: 'SUPPORTED' | 'EXCLUDED_GAP'; reason: string }> = [];
+  for (let index = 1; index < accepted.length; index += 1) {
+    const from = accepted[index - 1]; const to = accepted[index]; if (!from || !to || !finiteNumber(to.latitude) || !finiteNumber(to.longitude)) continue;
+    const elapsedSeconds = (Date.parse(String(to.capturedAt)) - Date.parse(String(from.capturedAt))) / 1000; const metres = distanceMetres(from, { latitude: to.latitude, longitude: to.longitude });
+    if (elapsedSeconds <= 0 || elapsedSeconds > 10 * 60) segments.push({ fromEventId: from.id, toEventId: to.id, metres: Math.round(metres), elapsedSeconds, status: 'EXCLUDED_GAP', reason: 'Segment is not continuous enough to support traversal evidence.' });
+    else segments.push({ fromEventId: from.id, toEventId: to.id, metres: Math.round(metres), elapsedSeconds, status: 'SUPPORTED', reason: 'Consecutive accepted points support candidate traversal only.' });
+  }
+  const supportedMetres = segments.filter((segment) => segment.status === 'SUPPORTED').reduce((total, segment) => total + segment.metres, 0);
+  return { acceptedPointCount: accepted.length, segmentCount: segments.length, supportedSegmentCount: segments.filter((segment) => segment.status === 'SUPPORTED').length, supportedTraversalKm: Math.round(supportedMetres) / 1000, derivationStatus: accepted.length < 2 ? 'INSUFFICIENT_SEQUENCE' : supportedMetres === 0 ? 'NO_SUPPORTED_SEGMENTS' : 'CANDIDATE_TRAVERSAL', coverageDerived: false, coverageReason: 'Traversal distance is evidence of movement, not proof that roads, streets or stores were searched.', segments };
 }
 
 app.post<{ Params: { sessionId: string }; Body: MovementBody }>('/api/v1/search-sessions/:sessionId/movement-events', async (request) => {
@@ -90,16 +102,11 @@ app.post<{ Params: { sessionId: string }; Body: MovementBody }>('/api/v1/search-
   if (source !== 'pwa_foreground') throw new AuthorisationError('Movement source is not supported by this endpoint.');
   const now = Date.now(); const capturedMs = Date.parse(capturedAt);
   if (capturedMs > now + 60_000 || capturedMs < now - 24 * 60 * 60 * 1000) throw new AuthorisationError('Movement capture time is outside the accepted window.');
-
   const priorSnapshot = await firestore.collection('movementEvents').where('workspaceId', '==', authority.workspaceId).where('searchSessionId', '==', session.id).get();
-  const prior = priorSnapshot.docs.map((document) => document.data() as MovementPoint).filter((event) => typeof event.capturedAt === 'string' && Number.isFinite(Date.parse(event.capturedAt))).sort((a, b) => Date.parse(String(b.capturedAt)) - Date.parse(String(a.capturedAt)))[0];
+  const prior = priorSnapshot.docs.map((document) => ({ id: document.id, ...document.data() } as MovementPoint)).filter((event) => typeof event.capturedAt === 'string' && Number.isFinite(Date.parse(event.capturedAt))).sort((a, b) => Date.parse(String(b.capturedAt)) - Date.parse(String(a.capturedAt)))[0];
   let validationStatus: 'ACCEPTED' | 'REJECTED_ACCURACY' | 'REJECTED_DUPLICATE' | 'REJECTED_SPEED' = 'ACCEPTED'; let validationReason = 'Point accepted as movement evidence; coverage is not yet derived.';
   if (accuracyMetres > 100) { validationStatus = 'REJECTED_ACCURACY'; validationReason = 'GPS accuracy exceeds the conservative 100 metre evidence threshold.'; }
-  else if (prior && typeof prior.capturedAt === 'string') {
-    const metres = distanceMetres(prior, { latitude, longitude }); const elapsedSeconds = Math.abs(capturedMs - Date.parse(prior.capturedAt)) / 1000;
-    if (metres <= Math.max(10, accuracyMetres)) { validationStatus = 'REJECTED_DUPLICATE'; validationReason = 'Point does not add meaningful movement beyond GPS accuracy.'; }
-    else if (elapsedSeconds > 0 && metres / elapsedSeconds > 55.56) { validationStatus = 'REJECTED_SPEED'; validationReason = 'Point implies movement above 200 km/h and is excluded from coverage evidence.'; }
-  }
+  else if (prior && typeof prior.capturedAt === 'string') { const metres = distanceMetres(prior, { latitude, longitude }); const elapsedSeconds = Math.abs(capturedMs - Date.parse(prior.capturedAt)) / 1000; if (metres <= Math.max(10, accuracyMetres)) { validationStatus = 'REJECTED_DUPLICATE'; validationReason = 'Point does not add meaningful movement beyond GPS accuracy.'; } else if (elapsedSeconds > 0 && metres / elapsedSeconds > 55.56) { validationStatus = 'REJECTED_SPEED'; validationReason = 'Point implies movement above 200 km/h and is excluded from coverage evidence.'; } }
   const accepted = validationStatus === 'ACCEPTED'; const eventRef = firestore.collection('movementEvents').doc(); const receivedAt = new Date(now).toISOString();
   await eventRef.set({ workspaceId: authority.workspaceId, projectId, assignmentId, searchSessionId: session.id, userId: identity.uid, capturedAt: new Date(capturedMs).toISOString(), receivedAt, latitude, longitude, accuracyMetres, source: 'pwa_foreground', validationStatus, validationReason, environment: process.env.SURVEY_GURU_ENV ?? 'local' });
   await session.ref.update({ queuedEvidenceCount: Number(session.get('queuedEvidenceCount') ?? 0) + 1, acceptedEvidenceCount: Number(session.get('acceptedEvidenceCount') ?? 0) + (accepted ? 1 : 0), rejectedEvidenceCount: Number(session.get('rejectedEvidenceCount') ?? 0) + (accepted ? 0 : 1), lastEvidenceAt: receivedAt, updatedAt: receivedAt });
@@ -109,9 +116,9 @@ app.post<{ Params: { sessionId: string }; Body: MovementBody }>('/api/v1/search-
 app.get<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId/movement-events', async (request) => {
   const { authority, firestore, session } = await getAuthorisedSession(request, request.params.sessionId);
   const snapshot = await firestore.collection('movementEvents').where('workspaceId', '==', authority.workspaceId).where('searchSessionId', '==', session.id).get();
-  const events = snapshot.docs.map((document) => ({ id: document.id, ...document.data() })).sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt))).slice(0, 25);
-  const acceptedCount = events.filter((event) => event.validationStatus === 'ACCEPTED').length; const rejectedCount = events.length - acceptedCount;
-  return { movementEvents: events, evidence: { count: events.length, acceptedCount, rejectedCount, coverageState: session.get('coverageState') ?? 'UNCOVERED', searchedKm: session.get('searchedKm') ?? 0, derivationStatus: acceptedCount < 2 ? 'INSUFFICIENT_SEQUENCE' : 'READY_FOR_SEGMENT_DERIVATION' }, authority: { permission: 'field.capture', identityScoped: true, workspaceId: authority.workspaceId } };
+  const allEvents = snapshot.docs.map((document) => ({ id: document.id, ...document.data() })); const traversal = deriveTraversal(allEvents); const events = [...allEvents].sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt))).slice(0, 25);
+  const acceptedCount = allEvents.filter((event) => event.validationStatus === 'ACCEPTED').length; const rejectedCount = allEvents.length - acceptedCount;
+  return { movementEvents: events, evidence: { count: allEvents.length, acceptedCount, rejectedCount, coverageState: session.get('coverageState') ?? 'UNCOVERED', searchedKm: session.get('searchedKm') ?? 0, traversal }, authority: { permission: 'field.capture', identityScoped: true, workspaceId: authority.workspaceId } };
 });
 
 const port = Number(process.env.PORT ?? 8080); const host = process.env.HOST ?? '127.0.0.1'; app.listen({ port, host }).catch((error) => { app.log.error(error); process.exit(1); });
