@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file=.env.local src/server.ts",
+    "bootstrap:dev": "tsx --env-file=.env.local src/bootstrap-dev.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node --env-file=.env.local dist/server.js"
