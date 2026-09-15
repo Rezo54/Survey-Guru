@@ -50,6 +50,7 @@
     padding: 0;
 }
 
+/* Canonical subsection: every menu pair uses this exact geometry. */
 .navGroup {
     box-sizing: border-box;
     display: grid;
@@ -62,13 +63,8 @@
     border-bottom: 1px solid rgba(192, 239, 228, .26);
 }
 
-.navGroup:first-child {
-    height: 97px;
-    padding-top: 0;
-}
-
 .navGroup:last-child {
-    border-bottom: 0;
+    border-bottom-color: transparent;
 }
 
 .nav a {
@@ -88,7 +84,6 @@
     font-size: .78rem;
     font-weight: 650;
     line-height: 1;
-    transform: none;
     transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
@@ -102,7 +97,6 @@
     font-size: 1.08rem;
     font-weight: 400;
     line-height: 24px;
-    transform: none;
 }
 
 .label {
@@ -113,7 +107,6 @@
     font: inherit;
     line-height: 1;
     white-space: nowrap;
-    transform: none;
 }
 
 .nav a:hover {
@@ -126,7 +119,6 @@
     border-color: rgba(110, 238, 207, .12);
     color: #fff;
     box-shadow: none;
-    transform: none;
 }
 
 .tableMountain {
@@ -160,8 +152,7 @@
         margin-top: 8px;
     }
 
-    .navGroup,
-    .navGroup:first-child {
+    .navGroup {
         grid-template-rows: repeat(2, 42px);
         gap: 3px;
         height: 97px;
