@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -38,4 +38,10 @@ export function getFirebaseClientApp(): FirebaseApp | null {
 export function getFirebaseClientAuth(): Auth | null {
   const app = getFirebaseClientApp();
   return app ? getAuth(app) : null;
+}
+
+export function createGoogleAuthProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
 }
