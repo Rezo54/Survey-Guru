@@ -1,7 +1,12 @@
 import Fastify from 'fastify';
 import { AuthenticationError, verifyRequestIdentity } from './auth.js';
-import { AuthorisationError, resolveAuthority } from './authority.js';
-import { isFirebaseAdminConfigured } from './firebase-admin.js';
+import {
+  AuthorisationError,
+  requirePermission,
+  requireProjectScope,
+  resolveAuthority,
+} from './authority.js';
+import { getFirebaseAdminServices, isFirebaseAdminConfigured } from './firebase-admin.js';
 
 const app = Fastify({ logger: true });
 
@@ -61,7 +66,7 @@ app.get('/health', async () => ({
 app.get('/api/v1/runtime', async () => ({
   environment: process.env.SURVEY_GURU_ENV ?? 'local',
   authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured',
-  protectedBusinessEndpoints: 'identity-and-authority-checkpoint',
+  protectedBusinessEndpoints: 'project-authorisation-checkpoint',
 }));
 
 app.get('/api/v1/me', async (request) => {
@@ -78,7 +83,36 @@ app.get('/api/v1/me', async (request) => {
         roleKey: authority.roleKey,
       },
       permissions: [...authority.permissions],
+      projectIds: [...authority.projectIds],
       resourceScope: 'workspace',
+    },
+  };
+});
+
+app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/summary', async (request) => {
+  const identity = await verifyRequestIdentity(request);
+  const authority = await resolveAuthority(identity);
+  requirePermission(authority, 'project.read');
+  requireProjectScope(authority, request.params.projectId);
+
+  const { firestore } = getFirebaseAdminServices();
+  const project = await firestore.collection('projects').doc(request.params.projectId).get();
+
+  if (!project.exists || project.get('workspaceId') !== authority.workspaceId) {
+    throw new AuthorisationError('Project is outside the authorised scope.');
+  }
+
+  return {
+    project: {
+      id: project.id,
+      name: project.get('name'),
+      status: project.get('status'),
+      summary: project.get('summary'),
+    },
+    authority: {
+      permission: 'project.read',
+      workspaceId: authority.workspaceId,
+      projectScoped: true,
     },
   };
 });
