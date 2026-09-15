@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { AuthenticationError, verifyRequestIdentity } from './auth.js';
+import { AuthorisationError, resolveAuthority } from './authority.js';
 import { isFirebaseAdminConfigured } from './firebase-admin.js';
 
 const app = Fastify({ logger: true });
@@ -36,6 +37,13 @@ app.setErrorHandler((error, _request, reply) => {
     });
   }
 
+  if (error instanceof AuthorisationError) {
+    return reply.code(error.statusCode).send({
+      error: 'forbidden',
+      message: error.message,
+    });
+  }
+
   app.log.error(error);
   return reply.code(500).send({
     error: 'internal_error',
@@ -53,19 +61,24 @@ app.get('/health', async () => ({
 app.get('/api/v1/runtime', async () => ({
   environment: process.env.SURVEY_GURU_ENV ?? 'local',
   authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured',
-  protectedBusinessEndpoints: 'identity-checkpoint-only',
+  protectedBusinessEndpoints: 'identity-and-authority-checkpoint',
 }));
 
 app.get('/api/v1/me', async (request) => {
   const identity = await verifyRequestIdentity(request);
+  const authority = await resolveAuthority(identity);
 
   return {
     identity,
     authority: {
-      status: 'identity-verified',
-      workspaceMembership: 'not-resolved',
-      permissions: 'not-resolved',
-      resourceScope: 'not-resolved',
+      status: 'authorised',
+      workspaceMembership: {
+        id: authority.membershipId,
+        workspaceId: authority.workspaceId,
+        roleKey: authority.roleKey,
+      },
+      permissions: [...authority.permissions],
+      resourceScope: 'workspace',
     },
   };
 });
