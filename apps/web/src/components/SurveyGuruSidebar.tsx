@@ -29,8 +29,8 @@ const groups: ReadonlyArray<ReadonlyArray<NavItem>> = [
         { section: 'explore', href: '/opportunities/demo#explore', icon: '⌕', label: 'Explore' },
     ],
     [
-        { section: 'evidence', href: '/dashboard#evidence', icon: '▤', label: 'Evidence' },
-        { section: 'qa', href: '/dashboard#qa', icon: '◆', label: 'QA' },
+        { section: 'evidence', href: '/qa', icon: '▤', label: 'Evidence' },
+        { section: 'qa', href: '/qa', icon: '◆', label: 'QA' },
     ],
     [
         { section: 'settings', href: '/dashboard#settings', icon: '⚙', label: 'Settings' },
