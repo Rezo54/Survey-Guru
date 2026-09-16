@@ -75,6 +75,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
+  const roadLinesRef = useRef<any[]>([]);
+  const zoomListenerRef = useRef<any>(null);
   const fittedRef = useRef(false);
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +116,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       mapRef.current = map;
       for (const overlay of overlaysRef.current) overlay.setMap(null);
       overlaysRef.current = [];
+      roadLinesRef.current = [];
       const bounds = new maps.LatLngBounds();
 
       if (coverage.projectBoundary && coverage.projectBoundary.length >= 3) {
@@ -128,8 +131,19 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           const path = slice.geometry.map((point) => ({ lat: point.latitude, lng: point.longitude }));
           if (path.length < 2) continue;
           path.forEach((point) => bounds.extend(point));
-          overlaysRef.current.push(new maps.Polyline({ map, path, strokeColor: colours[slice.colour], strokeOpacity: .96, strokeWeight: 4, zIndex: slice.colour === 'green' ? 4 : slice.colour === 'amber' ? 3 : 2 }));
+          const zoom = map.getZoom() ?? 14;
+          const strokeWeight = zoom <= 11 ? 2 : zoom <= 14 ? 3 : 4;
+          const roadLine = new maps.Polyline({ map, path, strokeColor: colours[slice.colour], strokeOpacity: .96, strokeWeight, zIndex: slice.colour === 'green' ? 4 : slice.colour === 'amber' ? 3 : 2 });
+          overlaysRef.current.push(roadLine);
+          roadLinesRef.current.push(roadLine);
         }
+      }
+      if (!zoomListenerRef.current) {
+        zoomListenerRef.current = map.addListener('zoom_changed', () => {
+          const zoom = map.getZoom() ?? 14;
+          const strokeWeight = zoom <= 11 ? 2 : zoom <= 14 ? 3 : 4;
+          for (const roadLine of roadLinesRef.current) roadLine.setOptions({ strokeWeight });
+        });
       }
       if (!bounds.isEmpty() && !fittedRef.current) {
         map.fitBounds(bounds, variant === 'dashboard' ? 18 : 34);
