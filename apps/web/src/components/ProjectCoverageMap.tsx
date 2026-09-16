@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { fieldApiOrigin, getFieldToken } from '../app/field/map/field-api';
 import styles from './ProjectCoverageMap.module.css';
 
@@ -87,11 +88,13 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const overlaysRef = useRef<any[]>([]);
   const roadLinesRef = useRef<RoadLine[]>([]);
   const zoomListenerRef = useRef<any>(null);
+  const controlsAttachedRef = useRef(false);
   const fittedRef = useRef(false);
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [coverageVisible, setCoverageVisible] = useState(true);
   const [visibleColours, setVisibleColours] = useState<Readonly<Record<CoverageColour, boolean>>>({ red: true, green: true, amber: true });
+  const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
 
@@ -132,6 +135,12 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
       mapRef.current = map;
+      if (variant !== 'field' && !controlsAttachedRef.current) {
+        const controlHost = document.createElement('div');
+        map.controls[maps.ControlPosition.TOP_LEFT].push(controlHost);
+        controlsAttachedRef.current = true;
+        setControlsHost(controlHost);
+      }
       for (const overlay of overlaysRef.current) overlay.setMap(null);
       overlaysRef.current = [];
       roadLinesRef.current = [];
@@ -175,15 +184,17 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     setVisibleColours((current) => ({ ...current, [colour]: !current[colour] }));
   };
 
+  const coverageControls = variant !== 'field' ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
+    <button type="button" className={coverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={coverageVisible}>Coverage {coverageVisible ? 'on' : 'off'}</button>
+    {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={coverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={coverageVisible && visibleColours[colour]} disabled={!coverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
+    {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
+  </div> : null;
+
   return <section className={styles.frame} data-variant={variant} data-header={showHeader ? 'true' : 'false'} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
     {apiKey ? <>
       <div ref={hostRef} className={styles.canvas} />
-      {variant !== 'field' ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
-        <button type="button" className={coverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={coverageVisible}>Coverage {coverageVisible ? 'on' : 'off'}</button>
-        {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={coverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={coverageVisible && visibleColours[colour]} disabled={!coverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
-        {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
-      </div> : null}
+      {controlsHost && coverageControls ? createPortal(coverageControls, controlsHost) : null}
     </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
     <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
     {error ? <p className={styles.error}>{error}</p> : null}
