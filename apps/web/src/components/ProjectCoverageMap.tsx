@@ -128,7 +128,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       const maps = window.google.maps;
       const map = mapRef.current ?? new maps.Map(hostRef.current, {
         center: { lat: -26.2455, lng: 27.8628 }, zoom: variant === 'dashboard' ? 12 : 14, mapTypeId: 'roadmap', styles: darkRoadmapStyle,
-        streetViewControl: false, mapTypeControl: variant === 'project', fullscreenControl: variant !== 'dashboard', zoomControl: true,
+        streetViewControl: false, mapTypeControl: variant === 'project', fullscreenControl: true, zoomControl: true,
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
       mapRef.current = map;
