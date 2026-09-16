@@ -3,8 +3,8 @@
 **Product Owner:** TES — Task Expert Systems  
 **Initial Operational Environment:** Taskraft (Pty) Ltd  
 **Status:** Approved Baseline / Living Document  
-**Version:** 1.1  
-**Updated:** 9 September 2026
+**Version:** 1.2  
+**Updated:** 16 September 2026
 
 ## 1. Purpose
 
@@ -434,9 +434,17 @@ POSSIBLE_MATCH
 STRONG_MATCH
 CONFIRMED_EXISTING
 CONFIRMED_NEW
+SAME_OUTLET_RENAMED
+NEW_OUTLET_AT_EXISTING_LOCATION
+COLOCATED_OUTLET
+OUTLET_MOVED
 MERGE_APPROVED
 KEEP_SEPARATE
 ```
+
+Location proximity and name similarity are independent identity signals. A changed name at the same coordinates may represent a rebrand of the same outlet, a new operator replacing a closed outlet, or a separate neighbouring/co-located outlet. The model therefore preserves historical names through Outlet Alias, lifecycle/validity history and evidence references rather than overwriting identity facts.
+
+A `SAME_OUTLET_RENAMED` decision keeps the outlet identity and records the previous name as an alias. A `NEW_OUTLET_AT_EXISTING_LOCATION` decision creates a new candidate and preserves the predecessor/location relationship without merging the businesses. Uncertain cases remain unresolved and move to QA.
 
 Permanent outlet merge is governed, audited and preserves lineage/history.
 
