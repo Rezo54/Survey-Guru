@@ -109,6 +109,27 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     return { storeCapture: { id: capture.id, ...capture.data() }, authority: { permission: 'field.capture', workspaceId: authority.workspaceId, identityScoped: true } };
   });
 
+  app.patch<{ Params: { captureId: string }; Body: DraftBody }>('/api/v1/store-captures/:captureId', async (request) => {
+    const { authority, firestore, capture, projectId } = await requireOwnedCapture(request, request.params.captureId);
+    if (capture.get('status') !== 'DRAFT' && capture.get('status') !== 'NEEDS_REVIEW') throw new StoreCaptureRequestError('Only a draft or returned capture can be edited.');
+    const observedName = typeof request.body?.observedName === 'string' ? request.body.observedName.trim() : '';
+    if (!observedName) throw new StoreCaptureRequestError('Store name is required.');
+    const location = parseLocation(request.body ?? {});
+    const answers = parseAnswers(request.body?.answers);
+    const photos = parsePhotos(request.body?.photos);
+    const selectedExistingStoreId = typeof request.body?.selectedExistingStoreId === 'string' && request.body.selectedExistingStoreId.trim() ? request.body.selectedExistingStoreId.trim() : undefined;
+    if (selectedExistingStoreId) {
+      const existing = await firestore.collection('stores').doc(selectedExistingStoreId).get();
+      if (!existing.exists || existing.get('workspaceId') !== authority.workspaceId) throw new StoreCaptureRequestError('The selected existing store is not available in this workspace.');
+    }
+    const expectedPrefix = `workspaces/${authority.workspaceId}/projects/${projectId}/captures/${capture.id}/`;
+    if (photos.some((photo) => !photo.storageObjectPath.startsWith(expectedPrefix))) throw new StoreCaptureRequestError('Photo evidence is outside the authorised capture path.');
+    const updatedAt = new Date().toISOString();
+    await capture.ref.update({ observedName, location, answers, photos, selectedExistingStoreId: selectedExistingStoreId ?? null, updatedAt });
+    const updated = await capture.ref.get();
+    return { storeCapture: { id: updated.id, ...updated.data() }, authority: { permission: 'field.capture', workspaceId: authority.workspaceId, identityScoped: true } };
+  });
+
   app.post<{ Params: { captureId: string } }>('/api/v1/store-captures/:captureId/submit', async (request) => {
     const { authority, firestore, capture, assignmentId, projectId } = await requireOwnedCapture(request, request.params.captureId);
     const project = await firestore.collection('projects').doc(projectId).get();
