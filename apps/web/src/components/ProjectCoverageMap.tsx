@@ -30,8 +30,16 @@ type CoverageResponse = {
   message?: string;
 };
 
+type CoverageColour = keyof typeof colours;
+type RoadLine = { line: any; colour: CoverageColour };
+
 const MAP_SCRIPT_ID = 'survey-guru-google-maps';
 const colours = { red: '#ff5d55', amber: '#f3b333', green: '#18dda5' } as const;
+const coverageLabels: Readonly<Record<CoverageColour, string>> = {
+  red: 'Not walked',
+  green: 'Walked',
+  amber: 'Unresolved',
+};
 const darkRoadmapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0c1e27' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#91aaa4' }] },
@@ -39,6 +47,8 @@ const darkRoadmapStyle = [
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#213b43' }] },
   { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#102a32' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#c4d7d2' }] },
+  { featureType: 'road', elementType: 'labels.text.stroke', stylers: [{ color: '#071923' }, { weight: 4 }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#315860' }] },
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#07151d' }] },
@@ -75,11 +85,13 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
-  const roadLinesRef = useRef<any[]>([]);
+  const roadLinesRef = useRef<RoadLine[]>([]);
   const zoomListenerRef = useRef<any>(null);
   const fittedRef = useRef(false);
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [coverageVisible, setCoverageVisible] = useState(true);
+  const [visibleColours, setVisibleColours] = useState<Readonly<Record<CoverageColour, boolean>>>({ red: true, green: true, amber: true });
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
 
@@ -101,6 +113,12 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     const timer = window.setInterval(() => { void loadCoverage(); }, 15_000);
     return () => window.clearInterval(timer);
   }, [loadCoverage, refreshKey]);
+
+  useEffect(() => {
+    for (const roadLine of roadLinesRef.current) {
+      roadLine.line.setVisible(coverageVisible && visibleColours[roadLine.colour]);
+    }
+  }, [coverageVisible, visibleColours]);
 
   useEffect(() => {
     if (!apiKey || !hostRef.current || !coverage) return;
@@ -132,17 +150,17 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           if (path.length < 2) continue;
           path.forEach((point) => bounds.extend(point));
           const zoom = map.getZoom() ?? 14;
-          const strokeWeight = zoom <= 11 ? 2 : zoom <= 14 ? 3 : 4;
-          const roadLine = new maps.Polyline({ map, path, strokeColor: colours[slice.colour], strokeOpacity: .96, strokeWeight, zIndex: slice.colour === 'green' ? 4 : slice.colour === 'amber' ? 3 : 2 });
+          const strokeWeight = zoom <= 11 ? 1 : zoom <= 14 ? 2 : 3;
+          const roadLine = new maps.Polyline({ map, path, strokeColor: colours[slice.colour], strokeOpacity: .72, strokeWeight, zIndex: slice.colour === 'green' ? 4 : slice.colour === 'amber' ? 3 : 2, visible: coverageVisible && visibleColours[slice.colour] });
           overlaysRef.current.push(roadLine);
-          roadLinesRef.current.push(roadLine);
+          roadLinesRef.current.push({ line: roadLine, colour: slice.colour });
         }
       }
       if (!zoomListenerRef.current) {
         zoomListenerRef.current = map.addListener('zoom_changed', () => {
           const zoom = map.getZoom() ?? 14;
-          const strokeWeight = zoom <= 11 ? 2 : zoom <= 14 ? 3 : 4;
-          for (const roadLine of roadLinesRef.current) roadLine.setOptions({ strokeWeight });
+          const strokeWeight = zoom <= 11 ? 1 : zoom <= 14 ? 2 : 3;
+          for (const roadLine of roadLinesRef.current) roadLine.line.setOptions({ strokeWeight });
         });
       }
       if (!bounds.isEmpty() && !fittedRef.current) {
@@ -151,12 +169,22 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, coverage, variant]);
+  }, [apiKey, coverage, coverageVisible, variant, visibleColours]);
+
+  const toggleColour = (colour: CoverageColour) => {
+    setVisibleColours((current) => ({ ...current, [colour]: !current[colour] }));
+  };
 
   return <section className={styles.frame} data-variant={variant} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
-    {apiKey ? <div ref={hostRef} className={styles.canvas} /> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
-    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Uncertain</span><span><i className={styles.red}/>Not walked</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
+    {apiKey ? <>
+      <div ref={hostRef} className={styles.canvas} />
+      {variant === 'dashboard' ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
+        <button type="button" className={coverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={coverageVisible}>Coverage {coverageVisible ? 'on' : 'off'}</button>
+        {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={coverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={coverageVisible && visibleColours[colour]} disabled={!coverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
+      </div> : null}
+    </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
+    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
     {error ? <p className={styles.error}>{error}</p> : null}
   </section>;
 }
