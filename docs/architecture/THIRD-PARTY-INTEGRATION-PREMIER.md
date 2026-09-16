@@ -53,6 +53,24 @@ Management users must see Survey Guru and Premier delivery states independently.
 
 The field worker must not be required to recapture an accepted Survey Guru visit because Premier was temporarily unavailable or its interface changed.
 
+### 3.1 Outbound Release Gate
+
+The default Premier integration release gate is **Survey Guru Accepted**. Draft, incomplete, identity-uncertain, returned, rejected and QA-pending Visits are not released to Premier.
+
+| Survey Guru visit state | Premier action |
+|---|---|
+| Draft / questionnaire incomplete | Do not stage or submit |
+| Submitted / server validation running | Hold |
+| Identity resolution or QA required | Hold |
+| Returned for correction / rejected | Do not stage or submit |
+| Accepted / verified according to project policy | Queue for Premier delivery |
+| Accepted but Premier unavailable | Preserve and retry idempotently |
+| Corrected after an earlier Premier sync | Send an audited amendment/reconciliation according to the Premier interface contract |
+
+A project may permit straight-through release after authoritative server validation where the client has explicitly approved that policy and no human-QA rule is triggered. The field worker's submit action alone never authorises Premier delivery.
+
+For a newly discovered store, outlet identity resolution must complete before release so Survey Guru does not create avoidable duplicates in Premier. Photographs remain Survey Guru evidence unless Premier explicitly supports and requests them; completion of required photographic evidence may still be a prerequisite for Survey Guru acceptance.
+
 ---
 
 ## 4. Premier WTS Current Context
