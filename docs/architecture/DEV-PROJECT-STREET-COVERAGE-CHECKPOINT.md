@@ -2,7 +2,7 @@
 
 **Owner:** TES — Task Expert Systems  
 **Environment:** Development only  
-**Status:** Implemented boundary, DEV GIS candidate adapter, idempotent transaction service and accepted-movement orchestration  
+**Status:** Implemented boundary, accepted-movement orchestration and live shared field-map rendering  
 **Date:** 16 September 2026
 
 ## Purpose
@@ -108,9 +108,21 @@ The movement endpoint now connects accepted movement evidence to the reconciliat
 
 New search sessions now retain their assignment coverage-policy ID. Shared coverage reads use project-scoped queries followed by server-side workspace/status checks, reducing DEV composite-index friction without weakening the authorisation boundary.
 
+## Live shared field map
+
+The Field Live Map now reads the authorised project street-coverage endpoint rather than rendering representative decorative roads.
+
+- eligible `ProjectStreetSegment` geometry is rendered over Google Maps;
+- red, amber and green come directly from the server response;
+- the map refreshes immediately after a location capture;
+- the map also refreshes every 15 seconds so other authorised project users see shared progress;
+- raw capturer trails and user identity are not returned to the shared map;
+- the previous fake coverage map has been removed;
+- the field page now uses the required Suspense boundary for its URL session parameter.
+
 ## Still deliberately excluded
 
-- live map polling/subscription;
+- push/event-driven live updates beyond the current 15-second authorised polling interval;
 - authoritative update of `searchedKm`;
 - production deployment or production data changes.
 
@@ -119,11 +131,13 @@ Until the GIS adapter generates candidates and persists auditable match evidence
 ## Verification
 
 - API strict TypeScript typecheck passes.
+- Web strict TypeScript typecheck passes.
+- Next.js production build passes for `/field/map`.
 - Sixteen executable tests pass for clear matching, project eligibility, generated GIS candidates, parallel-street ambiguity, side-street rejection, retained candidate evidence, continuity-gap refusal, deterministic reconciliation, contribution suppression for ambiguity, prior-segment continuity, topology parsing, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
 
 ## Next slice
 
-Connect the field map to the authorised shared project street-coverage endpoint and refresh it after accepted evidence synchronises. The UI must render the returned server state and must not infer colour from the local GPS trace.
+Run the DEV device/browser acceptance test, including first-point waiting, second-point matching, duplicate rejection, shared visibility in a second authorised session and red/amber/green rendering. Record the observed evidence before any staging or production decision.
 
 ---
 
