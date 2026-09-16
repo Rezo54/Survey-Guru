@@ -1,83 +1,55 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, type User } from 'firebase/auth';
-import { getFirebaseClientAuth } from '../../lib/firebase-client';
+import { fieldApiOrigin, getFieldToken } from '../field/map/field-api';
 
-type ProjectSummary = {
-  project?: {
-    id?: string;
-    name?: string;
-    status?: string;
-    summary?: {
-      searchedPercent?: number;
-      outstandingKm?: number;
-      verifiedPriorityOutlets?: number;
-      networkDecision?: string;
-    };
-  };
-  authority?: {
-    permission?: string;
-    workspaceId?: string;
-    projectScoped?: boolean;
-  };
-  error?: string;
+type CoverageSummary = Readonly<{
+  totalSegments: number;
+  uncoveredSegments: number;
+  partialSegments: number;
+  coveredSegments: number;
+}>;
+
+type CoverageResponse = Readonly<{
+  summary?: CoverageSummary;
   message?: string;
-};
+  error?: string;
+}>;
 
-function waitForFirebaseUser(): Promise<User | null> {
-  const auth = getFirebaseClientAuth();
-  if (!auth) return Promise.resolve(null);
-  if (auth.currentUser) return Promise.resolve(auth.currentUser);
-
-  return new Promise((resolve) => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      unsubscribe();
-      resolve(user);
-    });
-  });
+function confirmedPercent(summary: CoverageSummary): number {
+  return summary.totalSegments > 0 ? Math.round(summary.coveredSegments / summary.totalSegments * 100) : 0;
 }
 
-export default function ProjectSummaryCheckpoint() {
-  const [result, setResult] = useState<ProjectSummary | null>(null);
+export default function ProjectSummaryCheckpoint({ mode = 'detail' }: { mode?: 'detail' | 'badge' | 'metric' }) {
+  const [result, setResult] = useState<CoverageResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function loadProjectSummary() {
+    async function loadCoverageSummary() {
       try {
-        const user = await waitForFirebaseUser();
-        if (!user) {
-          if (!cancelled) setResult({ error: 'not_signed_in', message: 'Sign in required for live project data.' });
-          return;
-        }
-
-        const token = await user.getIdToken();
-        const apiOrigin = process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080';
-        const response = await fetch(`${apiOrigin}/api/v1/projects/prj_soweto_retail_universe/summary`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const token = await getFieldToken();
+        const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/prj_soweto_retail_universe/street-coverage`, {
+          headers: { Authorization: `Bearer ${token}` }, cache: 'no-store',
         });
-        const body = await response.json() as ProjectSummary;
+        const body = await response.json() as CoverageResponse;
+        if (!response.ok) throw new Error(body.message ?? body.error ?? 'Coverage summary is unavailable.');
         if (!cancelled) setResult(body);
       } catch (error) {
-        if (!cancelled) {
-          setResult({ error: 'request_failed', message: error instanceof Error ? error.message : 'Request failed.' });
-        }
+        if (!cancelled) setResult({ error: error instanceof Error ? error.message : 'Coverage summary is unavailable.' });
       }
     }
-
-    void loadProjectSummary();
-    return () => { cancelled = true; };
+    void loadCoverageSummary();
+    const timer = window.setInterval(() => { void loadCoverageSummary(); }, 15_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
 
-  const summary = result?.project?.summary;
+  const summary = result?.summary;
+  const percent = summary ? confirmedPercent(summary) : null;
 
-  if (!result) return <small>Loading authorised project intelligence…</small>;
-  if (!result.project) return <small>Live project data unavailable · {result.message ?? result.error}</small>;
+  if (mode === 'metric') return <strong>{percent === null ? '—' : `${percent}%`}</strong>;
+  if (mode === 'badge') return <>{percent === null ? '● Loading' : `● ${percent}% confirmed`}</>;
+  if (!result) return <small>Loading authoritative street coverage…</small>;
+  if (!summary) return <small>Live coverage unavailable · {result.error ?? result.message}</small>;
 
-  return (
-    <small>
-      Live Firestore/API · {summary?.searchedPercent ?? '—'}% searched · {summary?.outstandingKm ?? '—'} km outstanding · {summary?.verifiedPriorityOutlets ?? '—'} verified outlets · project scope {result.authority?.projectScoped ? 'verified' : 'not verified'}
-    </small>
-  );
+  return <small>Live coverage API · {summary.coveredSegments.toLocaleString()} complete · {summary.partialSegments.toLocaleString()} partial · {summary.uncoveredSegments.toLocaleString()} outstanding · {percent}% confirmed</small>;
 }
