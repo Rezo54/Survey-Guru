@@ -3,8 +3,8 @@
 **Product Owner:** TES — Task Expert Systems  
 **Operational / Field Partner:** Taskraft (Pty) Ltd  
 **Status:** MVP Product Baseline / Living Document  
-**Version:** 1.0  
-**Date:** 9 September 2026
+**Version:** 1.1  
+**Updated:** 16 September 2026
 
 ## 1. Purpose
 
@@ -279,13 +279,75 @@ Sophisticated predictive opportunity locations are not required for MVP, but the
 Worker sees assignment type, instructions, zone/outlet/street scope, map, survey, outstanding work and offline state, then selects Start. Start event/time is recorded when possible and activates project-scoped coverage collection where configured.
 
 ## 22. Discover Outlet Workflow
-Worker reaches outlet, selects Add/Discover Outlet, captures GPS/accuracy, enters/confirms name, checks nearby candidates, selects existing or creates candidate, captures required storefront evidence, completes visit and submits to validation/QA.
+Worker reaches an outlet and selects **Add / Discover Store**. This starts a draft Visit and Outlet Candidate workflow; it does **not** immediately create a captured or verified outlet.
+
+The workflow is:
+
+```text
+Add / Discover Store
+        |
+Capture GPS, accuracy and timestamp
+        |
+Check nearby / possible duplicate outlets
+        |
+Select existing outlet or continue as a new candidate
+        |
+Complete the project's published questionnaire
+        |
+Capture required photographs and other evidence
+        |
+Review completeness and warnings
+        |
+Submit Visit
+        |
+Server validation / QA
+        |
+Captured candidate or verified existing outlet
+```
+
+A store counts as captured only after all project-required questions and evidence have been completed and the Visit has been submitted successfully. A saved draft or partial questionnaire does not count as a captured store.
+
+Typical questionnaire content includes:
+
+- store/trading name and outlet classification;
+- owner or responsible-person name and permitted contact details;
+- address/location confirmation;
+- products, brands and SKUs stocked;
+- pack sizes, selling prices and other project-required commercial observations;
+- equipment, displays, competitor activity and availability;
+- required storefront, interior, shelf, product or price photographs;
+- project-specific questions, declarations and consent where applicable.
+
+The exact questions come from the immutable published Survey Version. Survey Guru must not hard-code one universal questionnaire.
+
+## 22.1 Fast Field Capture Without Reducing Evidence
+
+Speed comes from reducing repeated effort, not skipping required questions. The PWA should provide:
+
+- one-tap **Add Store** from the live map;
+- automatic assignment, search-session, GPS, timestamp and worker context;
+- duplicate checking before the worker completes the full questionnaire;
+- prefilled known data when verifying an existing outlet;
+- conditional questions that hide irrelevant sections;
+- repeatable rows for products, pack sizes and prices;
+- camera-first photo capture with preview and retake;
+- automatic draft saving and offline continuation;
+- clear section progress and a short final review;
+- return to the live map immediately after successful submission.
+
+## 22.2 Verify Existing Store
+
+Verification opens the existing authorised outlet details and the project's required questionnaire. Stable details are prefilled, and the worker confirms or corrects them rather than recapturing everything.
+
+Verification still requires fresh project evidence where configured, including current GPS, questionnaire answers, price/stock observations and photographs. Material identity or location changes require a reason and may be routed to QA. Client-side confirmation never bypasses server validation.
 
 ## 23. Duplicate / Existing Outlet Check
-MVP duplicate prevention uses distance, normalised name, client reference, workspace outlet and permitted Market Universe candidates. Uncertain matches go to human QA; outlets are never silently merged.
+MVP duplicate prevention uses distance, normalised name, client reference, workspace outlet and permitted Market Universe candidates. The duplicate check should occur immediately after GPS and store-name capture so the worker does not complete a full questionnaire for an outlet that already exists. Uncertain matches go to human QA; outlets are never silently merged.
 
 ## 24. Visit Capture
-Displays outlet identity, GPS/accuracy, survey sections, completion, evidence, save/offline status and warnings. Captured data survives navigation between sections.
+Displays outlet identity, GPS/accuracy, questionnaire sections, section progress, completion requirements, evidence, save/offline status and warnings. Captured data survives navigation between sections, application interruption and permitted offline operation.
+
+A Visit remains a draft while required questionnaire answers or evidence are incomplete. Submission is blocked only by configured `BLOCK` validations; `WARN` and `FLAG_FOR_QA` follow project policy and remain visible in the evidence trail.
 
 ## 25. GPS Capture
 At visit/coverage capture, record permitted latitude, longitude, accuracy and timestamp. Poor accuracy warns and allows retry. Device GPS and corrected/verified outlet location remain distinct. Manual overrides require reason/audit where enabled.
