@@ -12,7 +12,7 @@ type OverpassWay = Readonly<{
 export type OverpassResponse = Readonly<{ elements?: readonly unknown[] }>;
 
 const eligibleHighways = new Set([
-  'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service',
+  'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
 ]);
 
 function finiteCoordinate(point: Coordinate): boolean {
@@ -68,7 +68,7 @@ function polylineLengthMetres(geometry: readonly Coordinate[]): number {
 export function buildOverpassRoadQuery(boundary: readonly Coordinate[]): string {
   if (boundary.length < 3 || boundary.some((point) => !finiteCoordinate(point))) throw new Error('A valid project boundary is required for a road import.');
   const polygon = boundary.map((point) => `${point.latitude} ${point.longitude}`).join(' ');
-  return `[out:json][timeout:90];way["highway"](poly:"${polygon}");out meta geom;`;
+  return `[out:json][timeout:90];way["highway"~"^(primary|secondary|tertiary|unclassified|residential|living_street)$"](poly:"${polygon}");out meta geom;`;
 }
 
 export function projectStreetSegmentsFromOverpass(input: Readonly<{
