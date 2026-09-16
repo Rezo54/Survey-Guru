@@ -12,6 +12,7 @@ import {
   type MapMatchPolicy,
   type ProjectStreetSegment,
 } from '../src/map-matching.js';
+import { reconcileMapMatch, type ReconciliationPolicy } from '../src/map-match-persistence.js';
 
 const policy: MapMatchPolicy = {
   maximumLateralDistanceMetres: 25,
@@ -23,6 +24,7 @@ const policy: MapMatchPolicy = {
   algorithmVersion: 'map-match-dev-v1',
   coveragePolicyVersion: 1,
 };
+const reconciliationPolicy: ReconciliationPolicy = { ...policy, maximumGpsAccuracyMetres: 20, maximumContinuityGapSeconds: 120 };
 
 function segment(id: string, projectId = 'project-a'): ProjectStreetSegment {
   return {
@@ -158,4 +160,45 @@ test('persistable evidence retains all candidates and an ambiguous outcome', () 
   assert.equal(evidence.candidates.length, 2);
   assert.equal(evidence.selectedProjectStreetSegmentId, null);
   assert.deepEqual(evidence.sourceEvidenceIds, ['point-1', 'point-2']);
+});
+
+test('reconciliation skips a continuity gap before map matching', () => {
+  const decision = reconcileMapMatch({
+    workspaceId: 'workspace-a', projectId: 'project-a', searchSessionId: 'session-a', userId: 'capturer-a', projectStreetSegments: [segment('gap')], policy: reconciliationPolicy, createdAt: '2026-09-16T08:15:00.000Z',
+    from: { id: 'point-1', capturedAt: '2026-09-16T08:00:00.000Z', latitude: -26.2, longitude: 27.8, accuracyMetres: 5, validationStatus: 'ACCEPTED' },
+    to: { id: 'point-2', capturedAt: '2026-09-16T08:10:00.000Z', latitude: -26.2, longitude: 27.801, accuracyMetres: 5, validationStatus: 'ACCEPTED' },
+  });
+  assert.equal(decision.status, 'SKIPPED_UNSUPPORTED_TRAVERSAL');
+  assert.equal('evidence' in decision, false);
+});
+
+test('reconciliation creates deterministic evidence and contribution only for a match', () => {
+  const road = { ...segment('transactional'), geometry: [{ latitude: -26.2, longitude: 27.8 }, { latitude: -26.2, longitude: 27.802 }] };
+  const input = {
+    workspaceId: 'workspace-a', projectId: 'project-a', searchSessionId: 'session-a', userId: 'capturer-a', projectStreetSegments: [road], policy: reconciliationPolicy, createdAt: '2026-09-16T08:01:00.000Z',
+    from: { id: 'point-1', capturedAt: '2026-09-16T08:00:00.000Z', latitude: -26.20001, longitude: 27.8002, accuracyMetres: 5, validationStatus: 'ACCEPTED' as const },
+    to: { id: 'point-2', capturedAt: '2026-09-16T08:01:00.000Z', latitude: -26.20001, longitude: 27.8018, accuracyMetres: 5, validationStatus: 'ACCEPTED' as const },
+  };
+  const first = reconcileMapMatch(input);
+  const second = reconcileMapMatch(input);
+  assert.equal(first.status, 'MATCHED');
+  assert.equal(second.status, 'MATCHED');
+  if (first.status !== 'MATCHED' || second.status !== 'MATCHED') assert.fail('Expected a match.');
+  assert.equal(first.evidence.id, 'mme_ct_point-1_point-2');
+  assert.equal(second.evidence.id, first.evidence.id);
+  assert.equal(first.contribution?.projectStreetSegmentId, 'transactional');
+});
+
+test('reconciliation persists ambiguous evidence but creates no contribution', () => {
+  const left = { ...segment('persist-left'), geometry: [{ latitude: -26.2, longitude: 27.8 }, { latitude: -26.2, longitude: 27.802 }] };
+  const right = { ...segment('persist-right'), geometry: [{ latitude: -26.2001, longitude: 27.8 }, { latitude: -26.2001, longitude: 27.802 }] };
+  const decision = reconcileMapMatch({
+    workspaceId: 'workspace-a', projectId: 'project-a', searchSessionId: 'session-a', userId: 'capturer-a', projectStreetSegments: [left, right], policy: reconciliationPolicy, createdAt: '2026-09-16T08:01:00.000Z',
+    from: { id: 'point-1', capturedAt: '2026-09-16T08:00:00.000Z', latitude: -26.20005, longitude: 27.8002, accuracyMetres: 5, validationStatus: 'ACCEPTED' },
+    to: { id: 'point-2', capturedAt: '2026-09-16T08:01:00.000Z', latitude: -26.20005, longitude: 27.8018, accuracyMetres: 5, validationStatus: 'ACCEPTED' },
+  });
+  assert.equal(decision.status, 'AMBIGUOUS');
+  if (decision.status !== 'AMBIGUOUS') assert.fail('Expected ambiguity.');
+  assert.equal(decision.evidence.outcome, 'AMBIGUOUS');
+  assert.equal(decision.contribution, null);
 });

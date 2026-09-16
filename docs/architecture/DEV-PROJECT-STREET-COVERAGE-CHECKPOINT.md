@@ -2,7 +2,7 @@
 
 **Owner:** TES — Task Expert Systems  
 **Environment:** Development only  
-**Status:** Implemented boundary and DEV GIS candidate adapter; transactional persistence still pending  
+**Status:** Implemented boundary, DEV GIS candidate adapter and idempotent transaction service; movement orchestration still pending  
 **Date:** 16 September 2026
 
 ## Purpose
@@ -80,10 +80,23 @@ The endpoint requires:
 
 The response is project-shared (`identityScoped: false`) and contains derived segment geometry/state only. It does not expose raw movement trails or capturer identity.
 
+## Transactional persistence boundary
+
+The DEV reconciliation service now enforces the evidence order before persistence:
+
+1. both movement points must already be accepted;
+2. both points must meet the active GPS-accuracy policy;
+3. timestamps must be chronological and within the continuity-gap policy;
+4. GIS candidates are generated;
+5. the conservative resolver produces `MATCHED`, `AMBIGUOUS` or `NO_MATCH`;
+6. the complete map-match evidence record is written;
+7. a street contribution is written only for `MATCHED`.
+
+The map-match evidence and optional contribution are created in one Firestore transaction. Deterministic evidence/contribution IDs make retry idempotent; an existing evidence record returns `ALREADY_EXISTS` rather than adding duplicate street distance.
+
 ## Still deliberately excluded
 
-- automatic persistence of `StreetCoverageContribution` from movement;
-- transactional persistence of the map-match evidence record;
+- orchestration from the accepted movement pipeline into the transaction service;
 - live map polling/subscription;
 - authoritative update of `searchedKm`;
 - production deployment or production data changes.
@@ -93,11 +106,11 @@ Until the GIS adapter generates candidates and persists auditable match evidence
 ## Verification
 
 - API strict TypeScript typecheck passes.
-- Eleven executable tests pass for clear matching, project eligibility, generated GIS candidates, parallel-street ambiguity, side-street rejection, retained candidate evidence, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
+- Fourteen executable tests pass for clear matching, project eligibility, generated GIS candidates, parallel-street ambiguity, side-street rejection, retained candidate evidence, continuity-gap refusal, deterministic reconciliation, contribution suppression for ambiguity, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
 
 ## Next slice
 
-Persist map-match evidence and any accepted street contribution together through an idempotent Firestore transaction. The transaction must refuse continuity gaps, retain ambiguous/no-match records, and only write a contribution for `MATCHED`.
+Orchestrate accepted movement pairs into the transaction service without creating partial state. The orchestration must retain the locked movement → accepted evidence → candidate traversal → map match → contribution sequence and then refresh the shared project read model.
 
 ---
 
