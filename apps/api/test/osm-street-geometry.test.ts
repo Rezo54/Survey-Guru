@@ -13,6 +13,7 @@ test('Overpass query is constrained to the explicit project polygon', () => {
   const query = buildOverpassRoadQuery(boundary);
   assert.match(query, /way\["highway"\]\(poly:/);
   assert.match(query, /-26\.21 27\.8/);
+  assert.match(query, /out meta geom;/);
   assert.doesNotMatch(query, /bbox/);
 });
 

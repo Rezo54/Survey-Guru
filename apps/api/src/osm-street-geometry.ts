@@ -68,7 +68,7 @@ function polylineLengthMetres(geometry: readonly Coordinate[]): number {
 export function buildOverpassRoadQuery(boundary: readonly Coordinate[]): string {
   if (boundary.length < 3 || boundary.some((point) => !finiteCoordinate(point))) throw new Error('A valid project boundary is required for a road import.');
   const polygon = boundary.map((point) => `${point.latitude} ${point.longitude}`).join(' ');
-  return `[out:json][timeout:90];way["highway"](poly:"${polygon}");out geom meta;`;
+  return `[out:json][timeout:90];way["highway"](poly:"${polygon}");out meta geom;`;
 }
 
 export function projectStreetSegmentsFromOverpass(input: Readonly<{
