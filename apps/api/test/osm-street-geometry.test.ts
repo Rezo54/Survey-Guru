@@ -11,7 +11,7 @@ const boundary = [
 
 test('Overpass query is constrained to the explicit project polygon', () => {
   const query = buildOverpassRoadQuery(boundary);
-  assert.match(query, /way\["highway"\]\(poly:/);
+  assert.match(query, /way\["highway"~"\^\(primary\|secondary/);
   assert.match(query, /-26\.21 27\.8/);
   assert.match(query, /out meta geom;/);
   assert.doesNotMatch(query, /bbox/);
@@ -40,6 +40,7 @@ test('ineligible road classes and geometry outside the project are excluded', ()
     response: { elements: [
       { type: 'way', id: 1, tags: { highway: 'motorway' }, geometry: [{ lat: -26.2, lon: 27.801 }, { lat: -26.2, lon: 27.802 }] },
       { type: 'way', id: 2, tags: { highway: 'residential' }, geometry: [{ lat: -27, lon: 28 }, { lat: -27.1, lon: 28.1 }] },
+      { type: 'way', id: 3, tags: { highway: 'service', service: 'driveway' }, geometry: [{ lat: -26.2, lon: 27.801 }, { lat: -26.2, lon: 27.802 }] },
     ] },
   });
   assert.deepEqual(segments, []);
