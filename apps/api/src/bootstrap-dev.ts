@@ -22,7 +22,25 @@ batch.set(firestore.collection('workspaces').doc(workspaceId), { organisationId:
 batch.set(firestore.collection('roleDefinitions').doc(roleKey), { name: 'TES Super Administrator', scope: 'platform-and-workspace', permissions: ['platform.admin','workspace.admin','project.read','assignment.read','field.capture','qa.review','coverage.read','opportunity.read','report.read','export.data'], environment: 'dev' }, { merge: true });
 batch.set(firestore.collection('workspaceMemberships').doc(membershipId), { userId: uid, workspaceId, roleKey, status: 'active', environment: 'dev' }, { merge: true });
 batch.set(firestore.collection('coveragePolicies').doc(coveragePolicyId), { workspaceId, projectId, mode: 'EXHAUSTIVE_STREET', version: 1, status: 'pilot', movementModesAllowed: ['walking'], minimumGpsAccuracyRule: { maximumMetres: 100 }, continuityRule: { maximumGapSeconds: 600 }, mapMatching: { maximumLateralDistanceMetres: 25, maximumHeadingDeltaDegrees: 40, minimumContinuityScore: 0.65, ambiguityScoreGap: 0.12 }, thresholds: { partialTraversalPercent: 25, coveredTraversalPercent: 85 }, verificationRequired: true, algorithmVersion: 'map-match-dev-v1', environment: 'dev' }, { merge: true });
-batch.set(firestore.collection('projects').doc(projectId), { workspaceId, name: 'Soweto Retail Universe', status: 'active', environment: 'dev', coveragePolicyId, summary: { searchedPercent: 72, outstandingKm: 18.6, verifiedPriorityOutlets: 74, networkDecision: 'not-yet' } }, { merge: true });
+batch.set(firestore.collection('projects').doc(projectId), {
+  workspaceId,
+  name: 'Soweto Retail Universe',
+  status: 'active',
+  environment: 'dev',
+  coveragePolicyId,
+  boundary: [
+    { latitude: -26.201, longitude: 27.824 },
+    { latitude: -26.193, longitude: 27.876 },
+    { latitude: -26.214, longitude: 27.913 },
+    { latitude: -26.253, longitude: 27.916 },
+    { latitude: -26.281, longitude: 27.892 },
+    { latitude: -26.289, longitude: 27.843 },
+    { latitude: -26.264, longitude: 27.806 },
+    { latitude: -26.226, longitude: 27.803 },
+  ],
+  boundaryVersion: 'dev-soweto-2026-09-16',
+  summary: { searchedPercent: 72, outstandingKm: 18.6, verifiedPriorityOutlets: 74, networkDecision: 'not-yet' },
+}, { merge: true });
 batch.set(firestore.collection('projectMemberships').doc(projectMembershipId), { userId: uid, workspaceId, projectId, status: 'active', environment: 'dev' }, { merge: true });
 batch.set(firestore.collection('assignments').doc(assignmentId), { workspaceId, projectId, assignedUserId: uid, teamId: 'team_04', teamName: 'Team 04', areaName: 'Dobsonville West', assignmentType: 'coverage_search', status: 'active', priority: 'priority', evidenceState: 'unknown', targetState: 'searched', scheduledWindow: '08:00–10:30', outstandingKm: 18.6, coveragePolicyId, environment: 'dev' }, { merge: true });
 batch.set(firestore.collection('searchSessions').doc(searchSessionId), { workspaceId, projectId, assignmentId, userId: uid, teamId: 'team_04', areaName: 'Dobsonville West', state: 'READY', coverageState: 'UNCOVERED', searchedKm: 0, partialKm: 0, unknownKm: 18.6, queuedEvidenceCount: 0, acceptedEvidenceCount: 0, rejectedEvidenceCount: 0, coveragePolicyId, coveragePolicyVersion: 1, environment: 'dev', updatedAt: new Date().toISOString() }, { merge: true });

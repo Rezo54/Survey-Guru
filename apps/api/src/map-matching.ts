@@ -52,9 +52,18 @@ export type CoverageContribution = Readonly<{
   endOffsetMetres: number;
   algorithmVersion: string;
   coveragePolicyVersion: number;
+  geometryVersion?: string;
 }>;
 
 export type StreetCoverageState = 'UNCOVERED' | 'PARTIALLY_COVERED' | 'COVERED' | 'VERIFIED';
+
+export type StreetCoverageSlice = Readonly<{
+  startOffsetMetres: number;
+  endOffsetMetres: number;
+  geometry: readonly Coordinate[];
+  state: 'CONFIRMED' | 'OUTSTANDING';
+  colour: 'green' | 'red';
+}>;
 
 export type ProjectStreetCoverageView = Readonly<{
   projectStreetSegmentId: string;
@@ -66,6 +75,8 @@ export type ProjectStreetCoverageView = Readonly<{
   coveragePercent: number;
   algorithmVersion: string;
   coveragePolicyVersion: number;
+  geometryVersion: string;
+  coverageSlices: readonly StreetCoverageSlice[];
 }>;
 
 export type CandidateTraversal = Readonly<{
@@ -135,6 +146,68 @@ function toLocalMetres(point: Coordinate, origin: Coordinate): Readonly<{ x: num
 function distanceBetween(left: Coordinate, right: Coordinate): number {
   const local = toLocalMetres(right, left);
   return Math.hypot(local.x, local.y);
+}
+
+function interpolateCoordinate(from: Coordinate, to: Coordinate, fraction: number): Coordinate {
+  return {
+    latitude: from.latitude + (to.latitude - from.latitude) * fraction,
+    longitude: from.longitude + (to.longitude - from.longitude) * fraction,
+  };
+}
+
+function geometryLengthMetres(geometry: readonly Coordinate[]): number {
+  let total = 0;
+  for (let index = 1; index < geometry.length; index += 1) {
+    const from = geometry[index - 1];
+    const to = geometry[index];
+    if (from && to) total += distanceBetween(from, to);
+  }
+  return total;
+}
+
+/** Slices canonical street geometry using offsets measured against the segment length. */
+export function sliceStreetGeometry(
+  segment: ProjectStreetSegment,
+  startOffsetMetres: number,
+  endOffsetMetres: number,
+): readonly Coordinate[] {
+  const start = clamp(Math.min(startOffsetMetres, endOffsetMetres), 0, segment.lengthMetres);
+  const end = clamp(Math.max(startOffsetMetres, endOffsetMetres), 0, segment.lengthMetres);
+  const geometryLength = geometryLengthMetres(segment.geometry);
+  if (end <= start || geometryLength <= 0 || segment.lengthMetres <= 0) return [];
+
+  const scaledStart = start / segment.lengthMetres * geometryLength;
+  const scaledEnd = end / segment.lengthMetres * geometryLength;
+  const result: Coordinate[] = [];
+  let traversed = 0;
+
+  for (let index = 1; index < segment.geometry.length; index += 1) {
+    const from = segment.geometry[index - 1];
+    const to = segment.geometry[index];
+    if (!from || !to) continue;
+    const pieceLength = distanceBetween(from, to);
+    if (pieceLength <= 0) continue;
+    const pieceStart = traversed;
+    const pieceEnd = traversed + pieceLength;
+    if (pieceEnd < scaledStart) {
+      traversed = pieceEnd;
+      continue;
+    }
+    if (pieceStart > scaledEnd) break;
+
+    const localStart = clamp((scaledStart - pieceStart) / pieceLength, 0, 1);
+    const localEnd = clamp((scaledEnd - pieceStart) / pieceLength, 0, 1);
+    if (localEnd >= localStart) {
+      const startPoint = interpolateCoordinate(from, to, localStart);
+      const endPoint = interpolateCoordinate(from, to, localEnd);
+      const previous = result[result.length - 1];
+      if (!previous || previous.latitude !== startPoint.latitude || previous.longitude !== startPoint.longitude) result.push(startPoint);
+      if (endPoint.latitude !== startPoint.latitude || endPoint.longitude !== startPoint.longitude) result.push(endPoint);
+    }
+    traversed = pieceEnd;
+  }
+
+  return result;
 }
 
 function headingDegrees(from: Coordinate, to: Coordinate): number {
@@ -330,13 +403,14 @@ export function contributionFromMatch(input: Readonly<{
     endOffsetMetres,
     algorithmVersion: input.policy.algorithmVersion,
     coveragePolicyVersion: input.policy.coveragePolicyVersion,
+    geometryVersion: candidate.projectStreetSegment.source.sourceVersion,
   };
 }
 
 /** Repeated and overlapping walks are unioned by segment, irrespective of capturer. */
-export function uniqueCoveredMetres(segment: ProjectStreetSegment, contributions: readonly CoverageContribution[]): number {
+export function coveredIntervals(segment: ProjectStreetSegment, contributions: readonly CoverageContribution[]): readonly (readonly [number, number])[] {
   const intervals = contributions
-    .filter((item) => item.projectId === segment.projectId && item.projectStreetSegmentId === segment.id)
+    .filter((item) => item.projectId === segment.projectId && item.projectStreetSegmentId === segment.id && (!item.geometryVersion || item.geometryVersion === segment.source.sourceVersion))
     .map((item) => [
       clamp(Math.min(item.startOffsetMetres, item.endOffsetMetres), 0, segment.lengthMetres),
       clamp(Math.max(item.startOffsetMetres, item.endOffsetMetres), 0, segment.lengthMetres),
@@ -344,7 +418,7 @@ export function uniqueCoveredMetres(segment: ProjectStreetSegment, contributions
     .filter(([start, end]) => finite(start) && finite(end) && end > start)
     .sort((left, right) => left[0] - right[0]);
 
-  let total = 0;
+  const merged: Array<readonly [number, number]> = [];
   let currentStart: number | undefined;
   let currentEnd: number | undefined;
   for (const [start, end] of intervals) {
@@ -354,13 +428,36 @@ export function uniqueCoveredMetres(segment: ProjectStreetSegment, contributions
     } else if (start <= currentEnd) {
       currentEnd = Math.max(currentEnd, end);
     } else {
-      total += currentEnd - currentStart;
+      merged.push([currentStart, currentEnd]);
       currentStart = start;
       currentEnd = end;
     }
   }
-  if (currentStart !== undefined && currentEnd !== undefined) total += currentEnd - currentStart;
+  if (currentStart !== undefined && currentEnd !== undefined) merged.push([currentStart, currentEnd]);
+  return merged;
+}
+
+export function uniqueCoveredMetres(segment: ProjectStreetSegment, contributions: readonly CoverageContribution[]): number {
+  const total = coveredIntervals(segment, contributions).reduce((sum, [start, end]) => sum + end - start, 0);
   return Number(Math.min(segment.lengthMetres, total).toFixed(3));
+}
+
+export function buildStreetCoverageSlices(segment: ProjectStreetSegment, contributions: readonly CoverageContribution[]): readonly StreetCoverageSlice[] {
+  const confirmed = coveredIntervals(segment, contributions);
+  const slices: StreetCoverageSlice[] = [];
+  let cursor = 0;
+
+  for (const [start, end] of confirmed) {
+    if (start > cursor) {
+      slices.push({ startOffsetMetres: cursor, endOffsetMetres: start, geometry: sliceStreetGeometry(segment, cursor, start), state: 'OUTSTANDING', colour: 'red' });
+    }
+    slices.push({ startOffsetMetres: start, endOffsetMetres: end, geometry: sliceStreetGeometry(segment, start, end), state: 'CONFIRMED', colour: 'green' });
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < segment.lengthMetres) {
+    slices.push({ startOffsetMetres: cursor, endOffsetMetres: segment.lengthMetres, geometry: sliceStreetGeometry(segment, cursor, segment.lengthMetres), state: 'OUTSTANDING', colour: 'red' });
+  }
+  return slices.filter((slice) => slice.geometry.length >= 2);
 }
 
 export function buildProjectStreetCoverageView(input: Readonly<{
@@ -372,10 +469,11 @@ export function buildProjectStreetCoverageView(input: Readonly<{
   assertPolicy(input.policy);
   const currentContributions = input.contributions.filter((item) => item.algorithmVersion === input.policy.algorithmVersion && item.coveragePolicyVersion === input.policy.coveragePolicyVersion);
   const coveredMetres = uniqueCoveredMetres(input.segment, currentContributions);
+  const coverageSlices = buildStreetCoverageSlices(input.segment, currentContributions);
   const coveragePercent = Number((coveredMetres / input.segment.lengthMetres * 100).toFixed(2));
   let coverageState: StreetCoverageState = 'UNCOVERED';
   if (coveragePercent >= input.policy.coveredTraversalPercent) coverageState = input.verified ? 'VERIFIED' : 'COVERED';
-  else if (coveragePercent >= input.policy.partialTraversalPercent) coverageState = 'PARTIALLY_COVERED';
+  else if (coveredMetres > 0) coverageState = 'PARTIALLY_COVERED';
 
   return {
     projectStreetSegmentId: input.segment.id,
@@ -387,5 +485,7 @@ export function buildProjectStreetCoverageView(input: Readonly<{
     coveragePercent,
     algorithmVersion: input.policy.algorithmVersion,
     coveragePolicyVersion: input.policy.coveragePolicyVersion,
+    geometryVersion: input.segment.source.sourceVersion,
+    coverageSlices,
   };
 }

@@ -3,7 +3,7 @@ import { verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, requirePermission, requireProjectScope, resolveAuthority } from './authority.js';
 import { resolveCoveragePolicy } from './coverage-policy.js';
 import { getFirebaseAdminServices } from './firebase-admin.js';
-import { parseCoverageContribution, parseProjectStreetSegment } from './street-coverage-data.js';
+import { parseCoverageContribution, parseOptionalBoundary, parseProjectStreetSegment } from './street-coverage-data.js';
 import {
   buildProjectStreetCoverageView,
   type MapMatchPolicy,
@@ -46,6 +46,7 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
     return {
       projectId: project.id,
       ownership: 'PROJECT_SHARED',
+      projectBoundary: parseOptionalBoundary(project.get('boundary')),
       streetSegments,
       summary: {
         totalSegments: streetSegments.length,

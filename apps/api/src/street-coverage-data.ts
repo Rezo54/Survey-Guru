@@ -17,6 +17,13 @@ function coordinates(value: unknown): readonly Coordinate[] {
   return result;
 }
 
+export function parseOptionalBoundary(value: unknown): readonly Coordinate[] {
+  if (value === undefined || value === null) return [];
+  const boundary = coordinates(value);
+  if (boundary.length < 3) throw new Error('Project boundary requires at least three coordinates.');
+  return boundary;
+}
+
 export function parseProjectStreetSegment(id: string, data: Record<string, unknown>): ProjectStreetSegment {
   const { workspaceId, projectId, streetSegmentId, lengthMetres, geometry, source } = data;
   if (typeof workspaceId !== 'string' || typeof projectId !== 'string' || typeof streetSegmentId !== 'string' || !finite(lengthMetres) || lengthMetres <= 0 || !source || typeof source !== 'object') throw new Error('Project street segment is invalid.');
@@ -44,5 +51,6 @@ export function parseCoverageContribution(id: string, data: Record<string, unkno
     endOffsetMetres: data.endOffsetMetres,
     algorithmVersion: data.algorithmVersion as string,
     coveragePolicyVersion: data.coveragePolicyVersion,
+    ...(typeof data.geometryVersion === 'string' ? { geometryVersion: data.geometryVersion } : {}),
   };
 }

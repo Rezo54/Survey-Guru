@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildProjectStreetCoverageView,
+  buildStreetCoverageSlices,
   buildMapMatchEvidence,
   contributionFromMatch,
   generateMapMatchCandidates,
   resolveMapMatch,
   uniqueCoveredMetres,
+  sliceStreetGeometry,
   type CoverageContribution,
   type MatchCandidate,
   type MapMatchPolicy,
@@ -111,8 +113,65 @@ test('project street rendering uses red, amber and green server-derived states',
   });
   assert.equal(buildProjectStreetCoverageView({ segment: target, contributions: [], policy }).coverageColour, 'red');
   assert.equal(buildProjectStreetCoverageView({ segment: target, contributions: [contribution(40)], policy }).coverageColour, 'amber');
+  assert.equal(buildProjectStreetCoverageView({ segment: target, contributions: [contribution(10)], policy }).coverageState, 'PARTIALLY_COVERED');
   assert.equal(buildProjectStreetCoverageView({ segment: target, contributions: [contribution(90)], policy }).coverageColour, 'green');
   assert.equal(buildProjectStreetCoverageView({ segment: target, contributions: [contribution(90)], policy, verified: true }).coverageState, 'VERIFIED');
+});
+
+test('partial coverage renders confirmed green geometry and outstanding red geometry', () => {
+  const curved = {
+    ...segment('partial-render'),
+    geometry: [
+      { latitude: -26.2, longitude: 27.8 },
+      { latitude: -26.2, longitude: 27.801 },
+      { latitude: -26.201, longitude: 27.001 + 26.8 },
+    ],
+  };
+  const contributions: CoverageContribution[] = [{
+    projectId: 'project-a', projectStreetSegmentId: curved.id, searchSessionId: 'session-a', userId: 'capturer-a', evidenceId: 'partial',
+    startOffsetMetres: 0, endOffsetMetres: 40, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: '1',
+  }];
+  const slices = buildStreetCoverageSlices(curved, contributions);
+  assert.deepEqual(slices.map((slice) => [slice.colour, slice.startOffsetMetres, slice.endOffsetMetres]), [
+    ['green', 0, 40],
+    ['red', 40, 100],
+  ]);
+  assert.ok(slices.every((slice) => slice.geometry.length >= 2));
+});
+
+test('disconnected confirmed intervals retain red gaps and never double count', () => {
+  const target = segment('gapped');
+  const contributions: CoverageContribution[] = [
+    { projectId: 'project-a', projectStreetSegmentId: target.id, searchSessionId: 'a', userId: 'one', evidenceId: 'a', startOffsetMetres: 0, endOffsetMetres: 20, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: '1' },
+    { projectId: 'project-a', projectStreetSegmentId: target.id, searchSessionId: 'b', userId: 'two', evidenceId: 'b', startOffsetMetres: 60, endOffsetMetres: 80, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: '1' },
+  ];
+  assert.deepEqual(buildStreetCoverageSlices(target, contributions).map((slice) => slice.colour), ['green', 'red', 'green', 'red']);
+  assert.equal(uniqueCoveredMetres(target, contributions), 40);
+});
+
+test('geometry slicing preserves intermediate road vertices', () => {
+  const curved = {
+    ...segment('curve'),
+    geometry: [
+      { latitude: -26.2, longitude: 27.8 },
+      { latitude: -26.2, longitude: 27.801 },
+      { latitude: -26.201, longitude: 27.801 },
+    ],
+  };
+  const sliced = sliceStreetGeometry(curved, 20, 80);
+  assert.ok(sliced.length >= 3);
+  assert.ok(sliced.some((point) => point.latitude === -26.2 && point.longitude === 27.801));
+});
+
+test('contributions from incompatible geometry versions paint nothing', () => {
+  const target = segment('geometry-version');
+  const stale: CoverageContribution = {
+    projectId: 'project-a', projectStreetSegmentId: target.id, searchSessionId: 'old', userId: 'one', evidenceId: 'old',
+    startOffsetMetres: 0, endOffsetMetres: 100, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: 'old-geometry',
+  };
+  const view = buildProjectStreetCoverageView({ segment: target, contributions: [stale], policy });
+  assert.equal(view.coveredMetres, 0);
+  assert.deepEqual(view.coverageSlices.map((slice) => slice.colour), ['red']);
 });
 
 test('stale algorithm contributions do not paint the current coverage view', () => {
