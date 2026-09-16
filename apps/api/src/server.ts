@@ -12,7 +12,7 @@ const allowedWebOrigin = process.env.SURVEY_GURU_WEB_ORIGIN ?? 'http://localhost
 
 app.addHook('onRequest', async (request, reply) => {
   const origin = request.headers.origin;
-  if (origin === allowedWebOrigin) { reply.header('Access-Control-Allow-Origin', allowedWebOrigin); reply.header('Vary', 'Origin'); reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type'); reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); }
+  if (origin === allowedWebOrigin) { reply.header('Access-Control-Allow-Origin', allowedWebOrigin); reply.header('Vary', 'Origin'); reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type'); reply.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS'); }
   if (request.method === 'OPTIONS') { if (origin !== allowedWebOrigin) return reply.code(403).send({ error: 'origin_not_allowed', message: 'The request origin is not authorised for this API.' }); return reply.code(204).send(); }
 });
 
