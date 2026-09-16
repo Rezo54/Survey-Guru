@@ -7,6 +7,7 @@
     "dev": "tsx watch --env-file=.env.local src/server.ts",
     "bootstrap:dev": "tsx --env-file=.env.local src/bootstrap-dev.ts",
     "bootstrap:dev:second-capturer": "tsx --env-file=.env.local src/bootstrap-second-capturer-dev.ts",
+    "import:dev:osm-streets": "tsx --env-file=.env.local src/import-dev-osm-streets.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import tsx --test test/**/*.test.ts",

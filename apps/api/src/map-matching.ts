@@ -76,6 +76,7 @@ export type ProjectStreetCoverageView = Readonly<{
   algorithmVersion: string;
   coveragePolicyVersion: number;
   geometryVersion: string;
+  geometrySource: ProjectStreetSegment['source'];
   coverageSlices: readonly StreetCoverageSlice[];
 }>;
 
@@ -486,6 +487,7 @@ export function buildProjectStreetCoverageView(input: Readonly<{
     algorithmVersion: input.policy.algorithmVersion,
     coveragePolicyVersion: input.policy.coveragePolicyVersion,
     geometryVersion: input.segment.source.sourceVersion,
+    geometrySource: input.segment.source,
     coverageSlices,
   };
 }

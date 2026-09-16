@@ -18,6 +18,7 @@ type CoverageSegment = {
   geometry: Coordinate[];
   coverageState: 'UNCOVERED' | 'PARTIALLY_COVERED' | 'COVERED' | 'VERIFIED';
   coverageColour: 'red' | 'amber' | 'green';
+  geometrySource?: { provider: string; sourceId: string; sourceVersion: string };
   coverageSlices?: CoverageSlice[];
 };
 type CoverageResponse = {
@@ -78,6 +79,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
 
   const loadCoverage = useCallback(async () => {
     try {
@@ -140,7 +142,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   return <section className={styles.frame} data-variant={variant} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
     {apiKey ? <div ref={hostRef} className={styles.canvas} /> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
-    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Uncertain</span><span><i className={styles.red}/>Not walked</span><b>Project boundary and shared coverage · refreshes every 15 seconds</b></div>
+    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Uncertain</span><span><i className={styles.red}/>Not walked</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
     {error ? <p className={styles.error}>{error}</p> : null}
   </section>;
 }
