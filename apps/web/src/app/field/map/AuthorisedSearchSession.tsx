@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { fieldApiOrigin, getFieldToken } from './field-api';
 import feedbackStyles from './FieldFeedback.module.css';
 import SharedStreetCoverageMap from './SharedStreetCoverageMap';
 import s from './field-map.module.css';
 
-type Session = { id: string; projectId?: string; areaName?: string; state?: string; coverageState?: string; searchedKm?: number; partialKm?: number; unknownKm?: number; queuedEvidenceCount?: number };
+type Session = { id: string; projectId?: string; assignmentId?: string; areaName?: string; state?: string; coverageState?: string; searchedKm?: number; partialKm?: number; unknownKm?: number; queuedEvidenceCount?: number };
 type MovementEvent = { id: string; capturedAt: string; accuracyMetres: number; source: string; validationStatus: string; validationReason?: string; mapMatchStatus?: string };
 type TraversalSummary = { acceptedPointCount: number; segmentCount: number; supportedSegmentCount: number; supportedTraversalKm: number; derivationStatus: string; coverageDerived: boolean; coverageReason: string };
 type EvidenceSummary = { count: number; acceptedCount: number; rejectedCount: number; coverageState: string; searchedKm: number; traversal: TraversalSummary };
@@ -150,7 +151,7 @@ export default function AuthorisedSearchSession() {
       <p className={s.eyebrow}>Authorised field state</p>
       <h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2>
       <p>{active ? 'Walk the assigned streets and confirm your progress as you go. Confirmed street coverage is shared with the whole project team.' : 'Start when you are ready to walk the assigned area.'}</p>
-      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Checking location…' : 'Confirm my progress'}</button></div>
+      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Checking location…' : 'Confirm my progress'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
       {message ? <p className={s.subtle}>{message}</p> : null}
       {visibleFeedback ? <div className={`${feedbackStyles.captureFeedback} ${feedbackStyles[visibleFeedback.tone]}`} role="status"><span>{feedbackIcon(visibleFeedback.tone)}</span><div><strong>{visibleFeedback.title}</strong><p>{visibleFeedback.detail}</p></div></div> : null}
       {(evidence || traversal) ? <details className={feedbackStyles.technical}><summary>Technical evidence details</summary>{evidence ? <p>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded.</p> : null}{traversal ? <p>Candidate traversal: {traversal.supportedTraversalKm.toFixed(3)} km across {traversal.supportedSegmentCount} supported segment{traversal.supportedSegmentCount === 1 ? '' : 's'} · {traversal.derivationStatus.replaceAll('_', ' ').toLowerCase()}.</p> : null}</details> : null}
