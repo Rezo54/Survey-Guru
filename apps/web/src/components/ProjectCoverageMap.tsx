@@ -33,6 +33,7 @@ type CoverageResponse = {
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
+export type CoverageMapType = 'roadmap' | 'satellite' | 'hybrid' | 'terrain';
 
 const MAP_SCRIPT_ID = 'survey-guru-google-maps';
 const colours = { red: '#ff5d55', amber: '#f3b333', green: '#18dda5' } as const;
@@ -77,16 +78,21 @@ function loadGoogleMaps(apiKey: string): Promise<void> {
   return window.__surveyGuruGoogleMapsPromise;
 }
 
-export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true }: {
+export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true, mapType = 'roadmap', coverageLayerVisible = true, controlsVisible = true, locateRequest = 0 }: {
   projectId: string;
   refreshKey?: number;
   variant?: 'field' | 'project' | 'dashboard';
   showHeader?: boolean;
+  mapType?: CoverageMapType;
+  coverageLayerVisible?: boolean;
+  controlsVisible?: boolean;
+  locateRequest?: number;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
   const roadLinesRef = useRef<RoadLine[]>([]);
+  const locationMarkerRef = useRef<any>(null);
   const zoomListenerRef = useRef<any>(null);
   const controlsAttachedRef = useRef(false);
   const fittedRef = useRef(false);
@@ -97,6 +103,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
+  const effectiveCoverageVisible = coverageVisible && coverageLayerVisible;
 
   const loadCoverage = useCallback(async () => {
     try {
@@ -119,9 +126,29 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
 
   useEffect(() => {
     for (const roadLine of roadLinesRef.current) {
-      roadLine.line.setVisible(coverageVisible && visibleColours[roadLine.colour]);
+      roadLine.line.setVisible(effectiveCoverageVisible && visibleColours[roadLine.colour]);
     }
-  }, [coverageVisible, visibleColours]);
+  }, [effectiveCoverageVisible, visibleColours]);
+
+  useEffect(() => {
+    mapRef.current?.setMapTypeId(mapType);
+  }, [mapType]);
+
+  useEffect(() => {
+    if (locateRequest < 1 || !mapRef.current || !window.google?.maps) return;
+    if (!navigator.geolocation) {
+      setError('Location is not available in this browser.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(({ coords }) => {
+      const position = { lat: coords.latitude, lng: coords.longitude };
+      mapRef.current.panTo(position);
+      mapRef.current.setZoom(Math.max(mapRef.current.getZoom() ?? 14, 16));
+      locationMarkerRef.current?.setMap(null);
+      locationMarkerRef.current = new window.google.maps.Marker({ map: mapRef.current, position, title: 'Your current location', zIndex: 20 });
+      setError(null);
+    }, () => setError('Your current location could not be determined. Check browser location permission.'));
+  }, [locateRequest]);
 
   useEffect(() => {
     if (!apiKey || !hostRef.current || !coverage) return;
@@ -130,7 +157,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       if (cancelled || !hostRef.current || !window.google?.maps) return;
       const maps = window.google.maps;
       const map = mapRef.current ?? new maps.Map(hostRef.current, {
-        center: { lat: -26.2455, lng: 27.8628 }, zoom: variant === 'dashboard' ? 12 : 14, mapTypeId: 'roadmap', styles: darkRoadmapStyle,
+        center: { lat: -26.2455, lng: 27.8628 }, zoom: variant === 'dashboard' ? 12 : 14, mapTypeId: mapType, styles: darkRoadmapStyle,
         streetViewControl: false, mapTypeControl: variant === 'project', fullscreenControl: true, zoomControl: true,
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
@@ -160,7 +187,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           path.forEach((point) => bounds.extend(point));
           const zoom = map.getZoom() ?? 14;
           const strokeWeight = zoom <= 11 ? 1 : zoom <= 14 ? 2 : 3;
-          const roadLine = new maps.Polyline({ map, path, strokeColor: colours[slice.colour], strokeOpacity: .72, strokeWeight, zIndex: slice.colour === 'green' ? 4 : slice.colour === 'amber' ? 3 : 2, visible: coverageVisible && visibleColours[slice.colour] });
+          const roadLine = new maps.Polyline({ map, path, strokeColor: colours[slice.colour], strokeOpacity: .72, strokeWeight, zIndex: slice.colour === 'green' ? 4 : slice.colour === 'amber' ? 3 : 2, visible: effectiveCoverageVisible && visibleColours[slice.colour] });
           overlaysRef.current.push(roadLine);
           roadLinesRef.current.push({ line: roadLine, colour: slice.colour });
         }
@@ -178,15 +205,15 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, coverage, coverageVisible, variant, visibleColours]);
+  }, [apiKey, coverage, effectiveCoverageVisible, mapType, variant, visibleColours]);
 
   const toggleColour = (colour: CoverageColour) => {
     setVisibleColours((current) => ({ ...current, [colour]: !current[colour] }));
   };
 
-  const coverageControls = variant !== 'field' ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
-    <button type="button" className={coverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={coverageVisible}>Coverage {coverageVisible ? 'on' : 'off'}</button>
-    {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={coverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={coverageVisible && visibleColours[colour]} disabled={!coverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
+  const coverageControls = variant !== 'field' && controlsVisible ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
+    <button type="button" className={effectiveCoverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={effectiveCoverageVisible}>Coverage {effectiveCoverageVisible ? 'on' : 'off'}</button>
+    {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={effectiveCoverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={effectiveCoverageVisible && visibleColours[colour]} disabled={!effectiveCoverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
     {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
   </div> : null;
 
