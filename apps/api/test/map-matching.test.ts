@@ -13,6 +13,8 @@ import {
   type ProjectStreetSegment,
 } from '../src/map-matching.js';
 import { reconcileMapMatch, type ReconciliationPolicy } from '../src/map-match-persistence.js';
+import { findPreviousMatchedSegment } from '../src/movement-map-match.js';
+import { parseProjectStreetSegment } from '../src/street-coverage-data.js';
 
 const policy: MapMatchPolicy = {
   maximumLateralDistanceMetres: 25,
@@ -201,4 +203,23 @@ test('reconciliation persists ambiguous evidence but creates no contribution', (
   if (decision.status !== 'AMBIGUOUS') assert.fail('Expected ambiguity.');
   assert.equal(decision.evidence.outcome, 'AMBIGUOUS');
   assert.equal(decision.contribution, null);
+});
+
+test('orchestration continues from the matched segment ending at the previous movement point', () => {
+  const selected = findPreviousMatchedSegment([
+    { data: { workspaceId: 'workspace-a', projectId: 'project-a', outcome: 'AMBIGUOUS', sourceEvidenceIds: ['point-0', 'point-1'], selectedProjectStreetSegmentId: null, createdAt: '2026-09-16T08:00:00.000Z' } },
+    { data: { workspaceId: 'workspace-a', projectId: 'project-a', outcome: 'MATCHED', sourceEvidenceIds: ['point-0', 'point-1'], selectedProjectStreetSegmentId: 'segment-a', createdAt: '2026-09-16T08:01:00.000Z' } },
+    { data: { workspaceId: 'workspace-b', projectId: 'project-a', outcome: 'MATCHED', sourceEvidenceIds: ['point-0', 'point-1'], selectedProjectStreetSegmentId: 'foreign-segment', createdAt: '2026-09-16T08:02:00.000Z' } },
+  ], { workspaceId: 'workspace-a', projectId: 'project-a', fromEvidenceId: 'point-1' });
+  assert.equal(selected, 'segment-a');
+});
+
+test('project street parsing preserves explicit topology for sequence continuity', () => {
+  const parsed = parseProjectStreetSegment('segment-a', {
+    workspaceId: 'workspace-a', projectId: 'project-a', streetSegmentId: 'street-a', eligible: true, lengthMetres: 100,
+    geometry: [{ latitude: -26.2, longitude: 27.8 }, { latitude: -26.2, longitude: 27.801 }],
+    source: { provider: 'test', sourceId: 'street-a', sourceVersion: '1' },
+    connectedProjectStreetSegmentIds: ['segment-b', 'segment-c', 42],
+  });
+  assert.deepEqual(parsed.connectedProjectStreetSegmentIds, ['segment-b', 'segment-c']);
 });

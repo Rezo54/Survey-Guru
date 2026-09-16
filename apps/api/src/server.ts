@@ -3,6 +3,8 @@ import { AuthenticationError, verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, requireAssignmentScope, requirePermission, requireProjectScope, resolveAuthority } from './authority.js';
 import { getFirebaseAdminServices, isFirebaseAdminConfigured } from './firebase-admin.js';
 import { registerStreetCoverageRoutes } from './street-coverage-routes.js';
+import { reconcileAcceptedMovementPair, type AcceptedPairResult } from './movement-map-match.js';
+import type { AcceptedMovementPoint } from './map-match-persistence.js';
 
 const app = Fastify({ logger: true });
 const allowedWebOrigin = process.env.SURVEY_GURU_WEB_ORIGIN ?? 'http://localhost:3000';
@@ -44,7 +46,7 @@ app.post<{ Params: { assignmentId: string } }>('/api/v1/assignments/:assignmentI
   if (!assignment.exists || assignment.get('assignedUserId') !== identity.uid || assignment.get('workspaceId') !== authority.workspaceId) throw new AuthorisationError('Assignment is outside the authorised scope.');
   const projectId = assignment.get('projectId'); if (typeof projectId !== 'string') throw new AuthorisationError('Assignment project scope is invalid.'); requireProjectScope(authority, projectId);
   const sessionId = `ss_${assignment.id}`; const sessionRef = firestore.collection('searchSessions').doc(sessionId); const existing = await sessionRef.get();
-  if (!existing.exists) await sessionRef.set({ workspaceId: authority.workspaceId, projectId, assignmentId: assignment.id, userId: identity.uid, teamId: assignment.get('teamId'), areaName: assignment.get('areaName'), state: 'READY', coverageState: 'UNCOVERED', searchedKm: 0, partialKm: 0, unknownKm: assignment.get('outstandingKm') ?? 0, queuedEvidenceCount: 0, acceptedEvidenceCount: 0, rejectedEvidenceCount: 0, environment: process.env.SURVEY_GURU_ENV ?? 'local', updatedAt: new Date().toISOString() });
+  if (!existing.exists) await sessionRef.set({ workspaceId: authority.workspaceId, projectId, assignmentId: assignment.id, userId: identity.uid, teamId: assignment.get('teamId'), areaName: assignment.get('areaName'), state: 'READY', coverageState: 'UNCOVERED', searchedKm: 0, partialKm: 0, unknownKm: assignment.get('outstandingKm') ?? 0, queuedEvidenceCount: 0, acceptedEvidenceCount: 0, rejectedEvidenceCount: 0, coveragePolicyId: assignment.get('coveragePolicyId'), environment: process.env.SURVEY_GURU_ENV ?? 'local', updatedAt: new Date().toISOString() });
   const session = await sessionRef.get(); return { searchSession: { id: session.id, ...session.data() }, authority: { permission: 'field.capture', assignmentScoped: true, projectScoped: true } };
 });
 
@@ -82,6 +84,10 @@ function distanceMetres(a: MovementPoint, b: { latitude: number; longitude: numb
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * earth * Math.asin(Math.sqrt(h));
 }
+function acceptedMovementPoint(point: MovementPoint): AcceptedMovementPoint | null {
+  if (point.validationStatus !== 'ACCEPTED' || typeof point.id !== 'string' || typeof point.capturedAt !== 'string' || !finiteNumber(point.latitude) || !finiteNumber(point.longitude) || !finiteNumber(point.accuracyMetres)) return null;
+  return { id: point.id, capturedAt: point.capturedAt, latitude: point.latitude, longitude: point.longitude, accuracyMetres: point.accuracyMetres, validationStatus: 'ACCEPTED' };
+}
 function deriveTraversal(points: MovementPoint[]) {
   const accepted = points.filter((point) => point.validationStatus === 'ACCEPTED' && typeof point.capturedAt === 'string' && finiteNumber(point.latitude) && finiteNumber(point.longitude)).sort((a, b) => Date.parse(String(a.capturedAt)) - Date.parse(String(b.capturedAt)));
   const segments: Array<{ fromEventId: string | undefined; toEventId: string | undefined; metres: number; elapsedSeconds: number; status: 'SUPPORTED' | 'EXCLUDED_GAP'; reason: string }> = [];
@@ -106,14 +112,28 @@ app.post<{ Params: { sessionId: string }; Body: MovementBody }>('/api/v1/search-
   const now = Date.now(); const capturedMs = Date.parse(capturedAt);
   if (capturedMs > now + 60_000 || capturedMs < now - 24 * 60 * 60 * 1000) throw new AuthorisationError('Movement capture time is outside the accepted window.');
   const priorSnapshot = await firestore.collection('movementEvents').where('workspaceId', '==', authority.workspaceId).where('searchSessionId', '==', session.id).get();
-  const prior = priorSnapshot.docs.map((document) => ({ id: document.id, ...document.data() } as MovementPoint)).filter((event) => typeof event.capturedAt === 'string' && Number.isFinite(Date.parse(event.capturedAt))).sort((a, b) => Date.parse(String(b.capturedAt)) - Date.parse(String(a.capturedAt)))[0];
+  const priorEvents = priorSnapshot.docs.map((document) => ({ id: document.id, ...document.data() } as MovementPoint)).filter((event) => typeof event.capturedAt === 'string' && Number.isFinite(Date.parse(event.capturedAt))).sort((a, b) => Date.parse(String(b.capturedAt)) - Date.parse(String(a.capturedAt)));
+  const priorAccepted = priorEvents.map(acceptedMovementPoint).find((event): event is AcceptedMovementPoint => event !== null);
   let validationStatus: 'ACCEPTED' | 'REJECTED_ACCURACY' | 'REJECTED_DUPLICATE' | 'REJECTED_SPEED' = 'ACCEPTED'; let validationReason = 'Point accepted as movement evidence; coverage is not yet derived.';
   if (accuracyMetres > 100) { validationStatus = 'REJECTED_ACCURACY'; validationReason = 'GPS accuracy exceeds the conservative 100 metre evidence threshold.'; }
-  else if (prior && typeof prior.capturedAt === 'string') { const metres = distanceMetres(prior, { latitude, longitude }); const elapsedSeconds = Math.abs(capturedMs - Date.parse(prior.capturedAt)) / 1000; if (metres <= Math.max(10, accuracyMetres)) { validationStatus = 'REJECTED_DUPLICATE'; validationReason = 'Point does not add meaningful movement beyond GPS accuracy.'; } else if (elapsedSeconds > 0 && metres / elapsedSeconds > 55.56) { validationStatus = 'REJECTED_SPEED'; validationReason = 'Point implies movement above 200 km/h and is excluded from coverage evidence.'; } }
+  else if (priorAccepted) { const metres = distanceMetres(priorAccepted, { latitude, longitude }); const elapsedSeconds = Math.abs(capturedMs - Date.parse(priorAccepted.capturedAt)) / 1000; if (metres <= Math.max(10, accuracyMetres)) { validationStatus = 'REJECTED_DUPLICATE'; validationReason = 'Point does not add meaningful movement beyond GPS accuracy.'; } else if (elapsedSeconds > 0 && metres / elapsedSeconds > 55.56) { validationStatus = 'REJECTED_SPEED'; validationReason = 'Point implies movement above 200 km/h and is excluded from coverage evidence.'; } }
   const accepted = validationStatus === 'ACCEPTED'; const eventRef = firestore.collection('movementEvents').doc(); const receivedAt = new Date(now).toISOString();
-  await eventRef.set({ workspaceId: authority.workspaceId, projectId, assignmentId, searchSessionId: session.id, userId: identity.uid, capturedAt: new Date(capturedMs).toISOString(), receivedAt, latitude, longitude, accuracyMetres, source: 'pwa_foreground', validationStatus, validationReason, environment: process.env.SURVEY_GURU_ENV ?? 'local' });
+  await eventRef.set({ workspaceId: authority.workspaceId, projectId, assignmentId, searchSessionId: session.id, userId: identity.uid, capturedAt: new Date(capturedMs).toISOString(), receivedAt, latitude, longitude, accuracyMetres, source: 'pwa_foreground', validationStatus, validationReason, mapMatchStatus: accepted ? 'PENDING' : 'NOT_APPLICABLE', environment: process.env.SURVEY_GURU_ENV ?? 'local' });
   await session.ref.update({ queuedEvidenceCount: Number(session.get('queuedEvidenceCount') ?? 0) + 1, acceptedEvidenceCount: Number(session.get('acceptedEvidenceCount') ?? 0) + (accepted ? 1 : 0), rejectedEvidenceCount: Number(session.get('rejectedEvidenceCount') ?? 0) + (accepted ? 0 : 1), lastEvidenceAt: receivedAt, updatedAt: receivedAt });
-  return { movementEvent: { id: eventRef.id, capturedAt: new Date(capturedMs).toISOString(), accuracyMetres, source: 'pwa_foreground', validationStatus, validationReason }, coverage: { state: session.get('coverageState') ?? 'UNCOVERED', changed: false, reason: accepted ? 'Movement evidence passed point-level validation. Coverage requires a sufficient validated sequence and remains unchanged.' : 'Rejected movement evidence cannot support coverage.' }, authority: { permission: 'field.capture', assignmentScoped: true, projectScoped: true, identityScoped: true, workspaceId: authority.workspaceId } };
+  let mapMatch: AcceptedPairResult | { status: 'AWAITING_NEXT_POINT' | 'NOT_APPLICABLE'; persistence: 'NOT_APPLICABLE'; contributionCreated: false; reason: string; mapMatchEvidenceId: null } = accepted
+    ? { status: 'AWAITING_NEXT_POINT', persistence: 'NOT_APPLICABLE', contributionCreated: false, reason: 'The first accepted point is stored; a second accepted point is required to form candidate traversal.', mapMatchEvidenceId: null }
+    : { status: 'NOT_APPLICABLE', persistence: 'NOT_APPLICABLE', contributionCreated: false, reason: 'Rejected movement evidence cannot support coverage.', mapMatchEvidenceId: null };
+  if (accepted && priorAccepted) {
+    const current: AcceptedMovementPoint = { id: eventRef.id, capturedAt: new Date(capturedMs).toISOString(), latitude, longitude, accuracyMetres, validationStatus: 'ACCEPTED' };
+    try {
+      mapMatch = await reconcileAcceptedMovementPair(firestore, { workspaceId: authority.workspaceId, projectId, searchSessionId: session.id, userId: identity.uid, coveragePolicyId: session.get('coveragePolicyId'), from: priorAccepted, to: current, createdAt: receivedAt });
+    } catch (error) {
+      await eventRef.update({ mapMatchStatus: 'RETRY_REQUIRED', mapMatchUpdatedAt: new Date().toISOString() });
+      throw error;
+    }
+  }
+  await eventRef.update({ mapMatchStatus: mapMatch.status, mapMatchEvidenceId: mapMatch.mapMatchEvidenceId, mapMatchUpdatedAt: new Date().toISOString() });
+  return { movementEvent: { id: eventRef.id, capturedAt: new Date(capturedMs).toISOString(), accuracyMetres, source: 'pwa_foreground', validationStatus, validationReason, mapMatchStatus: mapMatch.status }, coverage: { state: session.get('coverageState') ?? 'UNCOVERED', changed: mapMatch.contributionCreated, matchOutcome: mapMatch.status, persistence: mapMatch.persistence, reason: mapMatch.reason }, authority: { permission: 'field.capture', assignmentScoped: true, projectScoped: true, identityScoped: true, workspaceId: authority.workspaceId } };
 });
 
 app.get<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId/movement-events', async (request) => {

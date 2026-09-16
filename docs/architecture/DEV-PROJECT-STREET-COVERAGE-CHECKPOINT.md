@@ -2,7 +2,7 @@
 
 **Owner:** TES — Task Expert Systems  
 **Environment:** Development only  
-**Status:** Implemented boundary, DEV GIS candidate adapter and idempotent transaction service; movement orchestration still pending  
+**Status:** Implemented boundary, DEV GIS candidate adapter, idempotent transaction service and accepted-movement orchestration  
 **Date:** 16 September 2026
 
 ## Purpose
@@ -94,9 +94,22 @@ The DEV reconciliation service now enforces the evidence order before persistenc
 
 The map-match evidence and optional contribution are created in one Firestore transaction. Deterministic evidence/contribution IDs make retry idempotent; an existing evidence record returns `ALREADY_EXISTS` rather than adding duplicate street distance.
 
+## Accepted movement orchestration
+
+The movement endpoint now connects accepted movement evidence to the reconciliation service:
+
+- the first accepted point is stored as `AWAITING_NEXT_POINT`;
+- the next accepted point forms the candidate traversal;
+- rejected points cannot become the previous-point anchor;
+- the active search-session coverage policy is resolved server-side;
+- eligible project street geometry and prior matched-segment continuity are resolved server-side;
+- the movement event records the resulting match status and evidence reference;
+- a reconciliation failure leaves the event as `RETRY_REQUIRED` rather than pretending coverage succeeded.
+
+New search sessions now retain their assignment coverage-policy ID. Shared coverage reads use project-scoped queries followed by server-side workspace/status checks, reducing DEV composite-index friction without weakening the authorisation boundary.
+
 ## Still deliberately excluded
 
-- orchestration from the accepted movement pipeline into the transaction service;
 - live map polling/subscription;
 - authoritative update of `searchedKm`;
 - production deployment or production data changes.
@@ -106,11 +119,11 @@ Until the GIS adapter generates candidates and persists auditable match evidence
 ## Verification
 
 - API strict TypeScript typecheck passes.
-- Fourteen executable tests pass for clear matching, project eligibility, generated GIS candidates, parallel-street ambiguity, side-street rejection, retained candidate evidence, continuity-gap refusal, deterministic reconciliation, contribution suppression for ambiguity, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
+- Sixteen executable tests pass for clear matching, project eligibility, generated GIS candidates, parallel-street ambiguity, side-street rejection, retained candidate evidence, continuity-gap refusal, deterministic reconciliation, contribution suppression for ambiguity, prior-segment continuity, topology parsing, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
 
 ## Next slice
 
-Orchestrate accepted movement pairs into the transaction service without creating partial state. The orchestration must retain the locked movement → accepted evidence → candidate traversal → map match → contribution sequence and then refresh the shared project read model.
+Connect the field map to the authorised shared project street-coverage endpoint and refresh it after accepted evidence synchronises. The UI must render the returned server state and must not infer colour from the local GPS trace.
 
 ---
 
