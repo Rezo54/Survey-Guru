@@ -105,6 +105,40 @@ test('overlapping contributions from two capturers count only unique street metr
   assert.equal('userId' in view, false);
 });
 
+test('complementary walks from two capturers complete one shared project street', () => {
+  const target = segment('shared-complementary');
+  const contributions: CoverageContribution[] = [
+    { projectId: target.projectId, projectStreetSegmentId: target.id, searchSessionId: 'session-a', userId: 'capturer-a', evidenceId: 'first-half', startOffsetMetres: 0, endOffsetMetres: 45, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: '1' },
+    { projectId: target.projectId, projectStreetSegmentId: target.id, searchSessionId: 'session-b', userId: 'capturer-b', evidenceId: 'second-half', startOffsetMetres: 45, endOffsetMetres: 100, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: '1' },
+  ];
+  const view = buildProjectStreetCoverageView({ segment: target, contributions, policy });
+  assert.equal(view.coveredMetres, 100);
+  assert.equal(view.coverageState, 'COVERED');
+  assert.deepEqual(view.coverageSlices.map((slice) => [slice.colour, slice.startOffsetMetres, slice.endOffsetMetres]), [['green', 0, 100]]);
+});
+
+test('walking a street in reverse produces the same normalised contribution', () => {
+  const outcome = resolveMapMatch({
+    workspaceId: 'workspace-a', projectId: 'project-a',
+    candidates: [candidate('reverse', { startOffsetMetres: 85, endOffsetMetres: 15 })], policy,
+  });
+  const contribution = contributionFromMatch({ outcome, projectId: 'project-a', searchSessionId: 'reverse-session', userId: 'capturer-a', evidenceId: 'reverse-evidence', policy });
+  assert.equal(contribution?.startOffsetMetres, 15);
+  assert.equal(contribution?.endOffsetMetres, 85);
+});
+
+test('foreign-project contributions cannot paint an assigned project street', () => {
+  const target = segment('project-boundary');
+  const foreign: CoverageContribution = {
+    projectId: 'project-b', projectStreetSegmentId: target.id, searchSessionId: 'foreign-session', userId: 'capturer-b', evidenceId: 'foreign',
+    startOffsetMetres: 0, endOffsetMetres: 100, algorithmVersion: policy.algorithmVersion, coveragePolicyVersion: 1, geometryVersion: '1',
+  };
+  const view = buildProjectStreetCoverageView({ segment: target, contributions: [foreign], policy });
+  assert.equal(view.coveredMetres, 0);
+  assert.equal(view.coverageState, 'UNCOVERED');
+  assert.deepEqual(view.coverageSlices.map((slice) => slice.colour), ['red']);
+});
+
 test('project street rendering uses red, amber and green server-derived states', () => {
   const target = segment('colour');
   const contribution = (endOffsetMetres: number): CoverageContribution => ({
