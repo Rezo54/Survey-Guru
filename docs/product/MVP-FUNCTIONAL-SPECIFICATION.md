@@ -342,7 +342,16 @@ Verification opens the existing authorised outlet details and the project's requ
 Verification still requires fresh project evidence where configured, including current GPS, questionnaire answers, price/stock observations and photographs. Material identity or location changes require a reason and may be routed to QA. Client-side confirmation never bypasses server validation.
 
 ## 23. Duplicate / Existing Outlet Check
-MVP duplicate prevention uses distance, normalised name, client reference, workspace outlet and permitted Market Universe candidates. The duplicate check should occur immediately after GPS and store-name capture so the worker does not complete a full questionnaire for an outlet that already exists. Uncertain matches go to human QA; outlets are never silently merged.
+MVP duplicate prevention uses location/distance, normalised and historical names, client reference, workspace outlet, permitted Market Universe candidates and other authorised identity signals. The nearby-outlet search runs from GPS even when the newly entered store name differs completely from the database name.
+
+The duplicate check should occur immediately after GPS and store-name capture so the worker does not complete a full questionnaire for an outlet that already exists. A same or near-identical location is a strong candidate signal, but it is not proof of the same outlet. The field workflow must allow:
+
+- **Same outlet — name changed / rebranded:** retain the outlet identity, preserve the former name as an alias with history, capture the new name and fresh evidence, and route material changes according to QA policy.
+- **New outlet replaced the previous outlet:** close/end-date the previous outlet where authorised and create a new candidate linked to the same premises/location history.
+- **Different neighbouring or co-located outlet:** keep separate identities even where GPS coordinates overlap or are imprecise.
+- **Unsure:** preserve both the new evidence and candidate matches, then send the identity decision to QA.
+
+The app presents nearby candidate names, distance, last known photograph/date and permitted reference details so the worker can make an informed selection. It never silently overwrites a name, merges outlets or treats shared coordinates as conclusive identity.
 
 ## 24. Visit Capture
 Displays outlet identity, GPS/accuracy, questionnaire sections, section progress, completion requirements, evidence, save/offline status and warnings. Captured data survives navigation between sections, application interruption and permitted offline operation.
