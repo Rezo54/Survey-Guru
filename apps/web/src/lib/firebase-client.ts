@@ -1,5 +1,6 @@
 import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -38,6 +39,11 @@ export function getFirebaseClientApp(): FirebaseApp | null {
 export function getFirebaseClientAuth(): Auth | null {
   const app = getFirebaseClientApp();
   return app ? getAuth(app) : null;
+}
+
+export function getFirebaseClientStorage(): FirebaseStorage | null {
+  const app = getFirebaseClientApp();
+  return app && firebaseConfig.storageBucket ? getStorage(app) : null;
 }
 
 export function createGoogleAuthProvider(): GoogleAuthProvider {
