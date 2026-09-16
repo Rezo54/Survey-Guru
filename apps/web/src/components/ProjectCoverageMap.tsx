@@ -175,13 +175,14 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     setVisibleColours((current) => ({ ...current, [colour]: !current[colour] }));
   };
 
-  return <section className={styles.frame} data-variant={variant} aria-label="Shared project street coverage map">
+  return <section className={styles.frame} data-variant={variant} data-header={showHeader ? 'true' : 'false'} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
     {apiKey ? <>
       <div ref={hostRef} className={styles.canvas} />
-      {variant === 'dashboard' ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
+      {variant !== 'field' ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
         <button type="button" className={coverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={coverageVisible}>Coverage {coverageVisible ? 'on' : 'off'}</button>
         {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={coverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={coverageVisible && visibleColours[colour]} disabled={!coverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
+        {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
       </div> : null}
     </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
     <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
