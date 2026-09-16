@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { AuthenticationError, verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, requireAssignmentScope, requirePermission, requireProjectScope, resolveAuthority } from './authority.js';
 import { getFirebaseAdminServices, isFirebaseAdminConfigured } from './firebase-admin.js';
+import { registerStreetCoverageRoutes } from './street-coverage-routes.js';
 
 const app = Fastify({ logger: true });
 const allowedWebOrigin = process.env.SURVEY_GURU_WEB_ORIGIN ?? 'http://localhost:3000';
@@ -17,6 +18,8 @@ app.setErrorHandler((error, _request, reply) => {
   if (error instanceof AuthorisationError) return reply.code(error.statusCode).send({ error: 'forbidden', message: error.message });
   app.log.error(error); return reply.code(500).send({ error: 'internal_error', message: 'The request could not be completed.' });
 });
+
+registerStreetCoverageRoutes(app);
 
 app.get('/health', async () => ({ service: 'survey-guru-api', status: 'ok', authority: 'api', firebaseConfigured: isFirebaseAdminConfigured() }));
 app.get('/api/v1/runtime', async () => ({ environment: process.env.SURVEY_GURU_ENV ?? 'local', authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured', protectedBusinessEndpoints: 'project-assignment-search-session-and-movement-authorisation' }));
@@ -81,7 +84,7 @@ function distanceMetres(a: MovementPoint, b: { latitude: number; longitude: numb
 }
 function deriveTraversal(points: MovementPoint[]) {
   const accepted = points.filter((point) => point.validationStatus === 'ACCEPTED' && typeof point.capturedAt === 'string' && finiteNumber(point.latitude) && finiteNumber(point.longitude)).sort((a, b) => Date.parse(String(a.capturedAt)) - Date.parse(String(b.capturedAt)));
-  const segments: Array<{ fromEventId?: string; toEventId?: string; metres: number; elapsedSeconds: number; status: 'SUPPORTED' | 'EXCLUDED_GAP'; reason: string }> = [];
+  const segments: Array<{ fromEventId: string | undefined; toEventId: string | undefined; metres: number; elapsedSeconds: number; status: 'SUPPORTED' | 'EXCLUDED_GAP'; reason: string }> = [];
   for (let index = 1; index < accepted.length; index += 1) {
     const from = accepted[index - 1]; const to = accepted[index]; if (!from || !to || !finiteNumber(to.latitude) || !finiteNumber(to.longitude)) continue;
     const elapsedSeconds = (Date.parse(String(to.capturedAt)) - Date.parse(String(from.capturedAt))) / 1000; const metres = distanceMetres(from, { latitude: to.latitude, longitude: to.longitude });
@@ -116,7 +119,7 @@ app.post<{ Params: { sessionId: string }; Body: MovementBody }>('/api/v1/search-
 app.get<{ Params: { sessionId: string } }>('/api/v1/search-sessions/:sessionId/movement-events', async (request) => {
   const { authority, firestore, session } = await getAuthorisedSession(request, request.params.sessionId);
   const snapshot = await firestore.collection('movementEvents').where('workspaceId', '==', authority.workspaceId).where('searchSessionId', '==', session.id).get();
-  const allEvents = snapshot.docs.map((document) => ({ id: document.id, ...document.data() })); const traversal = deriveTraversal(allEvents); const events = [...allEvents].sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt))).slice(0, 25);
+  const allEvents = snapshot.docs.map((document) => ({ id: document.id, ...document.data() } as MovementPoint)); const traversal = deriveTraversal(allEvents); const events = [...allEvents].sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt))).slice(0, 25);
   const acceptedCount = allEvents.filter((event) => event.validationStatus === 'ACCEPTED').length; const rejectedCount = allEvents.length - acceptedCount;
   return { movementEvents: events, evidence: { count: allEvents.length, acceptedCount, rejectedCount, coverageState: session.get('coverageState') ?? 'UNCOVERED', searchedKm: session.get('searchedKm') ?? 0, traversal }, authority: { permission: 'field.capture', identityScoped: true, workspaceId: authority.workspaceId } };
 });
