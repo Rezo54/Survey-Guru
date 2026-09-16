@@ -42,6 +42,17 @@ const coverageLabels: Readonly<Record<CoverageColour, string>> = {
   green: 'Walked',
   amber: 'Unresolved',
 };
+
+function coverageSignature(coverage: CoverageResponse): string {
+  return coverage.streetSegments.map((segment) => {
+    const slices = segment.coverageSlices?.map((slice) => {
+      const first = slice.geometry[0];
+      const last = slice.geometry[slice.geometry.length - 1];
+      return `${slice.state}:${slice.colour}:${slice.geometry.length}:${first?.latitude}:${first?.longitude}:${last?.latitude}:${last?.longitude}`;
+    }).join('|') ?? '';
+    return `${segment.projectStreetSegmentId}:${segment.coverageState}:${segment.coverageColour}:${slices}`;
+  }).join(';');
+}
 const darkRoadmapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0c1e27' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#91aaa4' }] },
@@ -95,6 +106,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const locationMarkerRef = useRef<any>(null);
   const zoomListenerRef = useRef<any>(null);
   const controlsAttachedRef = useRef(false);
+  const coverageSignatureRef = useRef<string | null>(null);
+  const preferencesLoadedRef = useRef(false);
   const fittedRef = useRef(false);
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +124,11 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/street-coverage`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
       const body = await response.json() as CoverageResponse;
       if (!response.ok || !Array.isArray(body.streetSegments)) throw new Error(body.message ?? 'Shared street coverage is unavailable.');
-      setCoverage(body);
+      const signature = coverageSignature(body);
+      if (signature !== coverageSignatureRef.current) {
+        coverageSignatureRef.current = signature;
+        setCoverage(body);
+      }
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Shared street coverage is unavailable.');
@@ -123,6 +140,29 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     const timer = window.setInterval(() => { void loadCoverage(); }, 15_000);
     return () => window.clearInterval(timer);
   }, [loadCoverage, refreshKey]);
+
+  useEffect(() => {
+    try {
+      const saved = window.sessionStorage.getItem(`survey-guru:coverage-map:${projectId}`);
+      if (saved) {
+        const preferences = JSON.parse(saved) as { coverageVisible?: boolean; visibleColours?: Partial<Record<CoverageColour, boolean>> };
+        if (typeof preferences.coverageVisible === 'boolean') setCoverageVisible(preferences.coverageVisible);
+        setVisibleColours((current) => ({ ...current, ...preferences.visibleColours }));
+      }
+    } catch {
+      // Invalid or unavailable session storage should never block the map.
+    }
+    preferencesLoadedRef.current = true;
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!preferencesLoadedRef.current) return;
+    try {
+      window.sessionStorage.setItem(`survey-guru:coverage-map:${projectId}`, JSON.stringify({ coverageVisible, visibleColours }));
+    } catch {
+      // Session persistence is an enhancement; map controls remain functional without it.
+    }
+  }, [coverageVisible, projectId, visibleColours]);
 
   useEffect(() => {
     for (const roadLine of roadLinesRef.current) {
@@ -205,7 +245,17 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, coverage, effectiveCoverageVisible, mapType, variant, visibleColours]);
+  }, [apiKey, coverage, variant]);
+
+  useEffect(() => () => {
+    zoomListenerRef.current?.remove?.();
+    zoomListenerRef.current = null;
+    for (const overlay of overlaysRef.current) overlay.setMap(null);
+    overlaysRef.current = [];
+    roadLinesRef.current = [];
+    locationMarkerRef.current?.setMap(null);
+    locationMarkerRef.current = null;
+  }, []);
 
   const toggleColour = (colour: CoverageColour) => {
     setVisibleColours((current) => ({ ...current, [colour]: !current[colour] }));
