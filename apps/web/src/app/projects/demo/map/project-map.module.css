@@ -239,13 +239,17 @@
     overflow: hidden
 }
 
-.mapTypes span {
+.mapTypes button {
     padding: 9px 16px;
     color: #b8cbc8;
-    font-size: .68rem
+    font-size: .68rem;
+    border: 0;
+    background: transparent;
+    cursor: pointer
 }
 
-.mapTypes .selected {
+.mapTypes .selected,
+.mapTools .selected {
     background: #13dda8;
     color: #041a15;
     font-weight: 900
@@ -688,7 +692,7 @@
         align-items: flex-start
     }
 
-    .mapTypes span {
+    .mapTypes button {
         padding: 8px 10px
     }
 
