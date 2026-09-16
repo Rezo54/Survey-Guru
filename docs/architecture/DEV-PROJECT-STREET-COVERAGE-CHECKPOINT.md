@@ -2,7 +2,7 @@
 
 **Owner:** TES — Task Expert Systems  
 **Environment:** Development only  
-**Status:** Implemented boundary; GIS candidate adapter still pending  
+**Status:** Implemented boundary and DEV GIS candidate adapter; transactional persistence still pending  
 **Date:** 16 September 2026
 
 ## Purpose
@@ -51,6 +51,21 @@ The map-matching boundary returns exactly one of:
 - unique interval union per project street segment;
 - server-derived red, amber and green rendering state.
 
+## DEV GIS candidate adapter
+
+The first dependency-free DEV adapter now:
+
+- projects both ends of a candidate traversal onto eligible project street polylines;
+- calculates lateral distance in metres;
+- compares traversal and street direction without assuming one-way walking;
+- calculates projected start/end offsets along the street geometry;
+- measures traversal-to-street distance continuity;
+- applies explicit segment topology when continuing from a previous street;
+- sends every generated candidate to the conservative resolver;
+- builds a persistable evidence record containing all considered candidates, the outcome, reason, source movement-event IDs and algorithm/policy versions.
+
+Candidate generation does not itself grant coverage. Only a `MATCHED` resolver outcome can produce a contribution.
+
 ## API boundary
 
 `GET /api/v1/projects/:projectId/street-coverage`
@@ -67,8 +82,8 @@ The response is project-shared (`identityScoped: false`) and contains derived se
 
 ## Still deliberately excluded
 
-- GIS candidate generation and line projection;
 - automatic persistence of `StreetCoverageContribution` from movement;
+- transactional persistence of the map-match evidence record;
 - live map polling/subscription;
 - authoritative update of `searchedKm`;
 - production deployment or production data changes.
@@ -78,11 +93,11 @@ Until the GIS adapter generates candidates and persists auditable match evidence
 ## Verification
 
 - API strict TypeScript typecheck passes.
-- Seven executable tests pass for clear matching, project eligibility, parallel-street ambiguity, side-street rejection, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
+- Eleven executable tests pass for clear matching, project eligibility, generated GIS candidates, parallel-street ambiguity, side-street rejection, retained candidate evidence, cross-capturer interval union, red/amber/green states and stale-algorithm exclusion.
 
 ## Next slice
 
-Implement the DEV GIS candidate adapter and persisted map-match evidence records. The adapter must retain all considered candidates and reasons, not only the winning street, so ambiguous and no-match decisions remain explainable and recalculable.
+Persist map-match evidence and any accepted street contribution together through an idempotent Firestore transaction. The transaction must refuse continuity gaps, retain ambiguous/no-match records, and only write a contribution for `MATCHED`.
 
 ---
 

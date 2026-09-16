@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildProjectStreetCoverageView,
+  buildMapMatchEvidence,
   contributionFromMatch,
+  generateMapMatchCandidates,
   resolveMapMatch,
   uniqueCoveredMetres,
   type CoverageContribution,
@@ -117,4 +119,43 @@ test('stale algorithm contributions do not paint the current coverage view', () 
   const view = buildProjectStreetCoverageView({ segment: segment('versioned'), contributions: [stale], policy });
   assert.equal(view.coverageState, 'UNCOVERED');
   assert.equal(view.coveredMetres, 0);
+});
+
+test('GIS candidate generation selects a clear nearby street', () => {
+  const clear = { ...segment('clear'), geometry: [{ latitude: -26.2, longitude: 27.8 }, { latitude: -26.2, longitude: 27.802 }] };
+  const traversal = { id: 'traversal-clear', from: { latitude: -26.20001, longitude: 27.8002 }, to: { latitude: -26.20001, longitude: 27.8018 }, fromEvidenceId: 'point-1', toEvidenceId: 'point-2' };
+  const candidates = generateMapMatchCandidates({ traversal, projectStreetSegments: [clear] });
+  const outcome = resolveMapMatch({ workspaceId: 'workspace-a', projectId: 'project-a', candidates, policy });
+  assert.equal(outcome.status, 'MATCHED');
+  assert.ok(candidates[0] && candidates[0].lateralDistanceMetres < 2);
+});
+
+test('GIS candidate generation keeps parallel streets visible to ambiguity handling', () => {
+  const north = { ...segment('north'), geometry: [{ latitude: -26.2, longitude: 27.8 }, { latitude: -26.2, longitude: 27.802 }] };
+  const south = { ...segment('south'), geometry: [{ latitude: -26.2001, longitude: 27.8 }, { latitude: -26.2001, longitude: 27.802 }] };
+  const traversal = { id: 'traversal-between', from: { latitude: -26.20005, longitude: 27.8002 }, to: { latitude: -26.20005, longitude: 27.8018 }, fromEvidenceId: 'point-1', toEvidenceId: 'point-2' };
+  const candidates = generateMapMatchCandidates({ traversal, projectStreetSegments: [north, south] });
+  const outcome = resolveMapMatch({ workspaceId: 'workspace-a', projectId: 'project-a', candidates, policy });
+  assert.equal(candidates.length, 2);
+  assert.equal(outcome.status, 'AMBIGUOUS');
+});
+
+test('GIS candidate generation exposes a perpendicular side street but resolver rejects it', () => {
+  const side = { ...segment('side-generated'), geometry: [{ latitude: -26.201, longitude: 27.801 }, { latitude: -26.199, longitude: 27.801 }] };
+  const traversal = { id: 'traversal-east', from: { latitude: -26.2, longitude: 27.8002 }, to: { latitude: -26.2, longitude: 27.8018 }, fromEvidenceId: 'point-1', toEvidenceId: 'point-2' };
+  const candidates = generateMapMatchCandidates({ traversal, projectStreetSegments: [side] });
+  assert.equal(candidates.length, 1);
+  assert.ok(candidates[0] && candidates[0].headingDeltaDegrees > 80);
+  assert.equal(resolveMapMatch({ workspaceId: 'workspace-a', projectId: 'project-a', candidates, policy }).status, 'NO_MATCH');
+});
+
+test('persistable evidence retains all candidates and an ambiguous outcome', () => {
+  const traversal = { id: 'traversal-audit', from: { latitude: -26.2, longitude: 27.8 }, to: { latitude: -26.2, longitude: 27.801 }, fromEvidenceId: 'point-1', toEvidenceId: 'point-2' };
+  const candidates = [candidate('audit-left'), candidate('audit-right', { lateralDistanceMetres: 5 })];
+  const outcome = resolveMapMatch({ workspaceId: 'workspace-a', projectId: 'project-a', candidates, policy });
+  const evidence = buildMapMatchEvidence({ id: 'match-evidence-a', workspaceId: 'workspace-a', projectId: 'project-a', searchSessionId: 'session-a', traversal, candidates, outcome, policy, createdAt: '2026-09-16T08:00:00.000Z' });
+  assert.equal(evidence.outcome, 'AMBIGUOUS');
+  assert.equal(evidence.candidates.length, 2);
+  assert.equal(evidence.selectedProjectStreetSegmentId, null);
+  assert.deepEqual(evidence.sourceEvidenceIds, ['point-1', 'point-2']);
 });

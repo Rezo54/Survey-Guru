@@ -13,6 +13,7 @@ export type ProjectStreetSegment = Readonly<{
     sourceId: string;
     sourceVersion: string;
   }>;
+  connectedProjectStreetSegmentIds?: readonly string[];
 }>;
 
 export type MatchCandidate = Readonly<{
@@ -67,6 +68,38 @@ export type ProjectStreetCoverageView = Readonly<{
   coveragePolicyVersion: number;
 }>;
 
+export type CandidateTraversal = Readonly<{
+  id: string;
+  from: Coordinate;
+  to: Coordinate;
+  fromEvidenceId: string;
+  toEvidenceId: string;
+}>;
+
+export type PersistableMapMatchEvidence = Readonly<{
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  searchSessionId: string;
+  candidateTraversalId: string;
+  sourceEvidenceIds: readonly string[];
+  outcome: MatchOutcome['status'];
+  selectedProjectStreetSegmentId: string | null;
+  reason: string;
+  candidates: ReadonlyArray<Readonly<{
+    projectStreetSegmentId: string;
+    lateralDistanceMetres: number;
+    headingDeltaDegrees: number;
+    continuityScore: number;
+    startOffsetMetres: number;
+    endOffsetMetres: number;
+    continuesFromPrevious: boolean;
+  }>>;
+  algorithmVersion: string;
+  coveragePolicyVersion: number;
+  createdAt: string;
+}>;
+
 function finite(value: number): boolean {
   return Number.isFinite(value);
 }
@@ -88,6 +121,128 @@ function assertPolicy(policy: MapMatchPolicy): void {
   ) {
     throw new Error('Map-match policy is invalid.');
   }
+}
+
+function toLocalMetres(point: Coordinate, origin: Coordinate): Readonly<{ x: number; y: number }> {
+  const earth = 6_371_000;
+  const latitudeRadians = origin.latitude * Math.PI / 180;
+  return {
+    x: (point.longitude - origin.longitude) * Math.PI / 180 * earth * Math.cos(latitudeRadians),
+    y: (point.latitude - origin.latitude) * Math.PI / 180 * earth,
+  };
+}
+
+function distanceBetween(left: Coordinate, right: Coordinate): number {
+  const local = toLocalMetres(right, left);
+  return Math.hypot(local.x, local.y);
+}
+
+function headingDegrees(from: Coordinate, to: Coordinate): number {
+  const local = toLocalMetres(to, from);
+  return (Math.atan2(local.x, local.y) * 180 / Math.PI + 360) % 360;
+}
+
+function undirectedHeadingDelta(left: number, right: number): number {
+  const directed = Math.abs(left - right) % 360;
+  const shortest = Math.min(directed, 360 - directed);
+  return Math.min(shortest, 180 - shortest);
+}
+
+function projectOntoSegment(point: Coordinate, from: Coordinate, to: Coordinate): Readonly<{ distanceMetres: number; fraction: number }> {
+  const projectedPoint = toLocalMetres(point, from);
+  const projectedEnd = toLocalMetres(to, from);
+  const squaredLength = projectedEnd.x ** 2 + projectedEnd.y ** 2;
+  if (squaredLength === 0) return { distanceMetres: Math.hypot(projectedPoint.x, projectedPoint.y), fraction: 0 };
+  const fraction = clamp((projectedPoint.x * projectedEnd.x + projectedPoint.y * projectedEnd.y) / squaredLength, 0, 1);
+  return {
+    distanceMetres: Math.hypot(projectedPoint.x - fraction * projectedEnd.x, projectedPoint.y - fraction * projectedEnd.y),
+    fraction,
+  };
+}
+
+function projectOntoPolyline(point: Coordinate, geometry: readonly Coordinate[]): Readonly<{ distanceMetres: number; offsetMetres: number; headingDegrees: number }> | null {
+  let traversedMetres = 0;
+  let best: { distanceMetres: number; offsetMetres: number; headingDegrees: number } | null = null;
+  for (let index = 1; index < geometry.length; index += 1) {
+    const from = geometry[index - 1];
+    const to = geometry[index];
+    if (!from || !to) continue;
+    const segmentLength = distanceBetween(from, to);
+    if (segmentLength === 0) continue;
+    const projection = projectOntoSegment(point, from, to);
+    const candidate = { distanceMetres: projection.distanceMetres, offsetMetres: traversedMetres + projection.fraction * segmentLength, headingDegrees: headingDegrees(from, to) };
+    if (!best || candidate.distanceMetres < best.distanceMetres) best = candidate;
+    traversedMetres += segmentLength;
+  }
+  return best;
+}
+
+/** Generates candidates only; resolveMapMatch remains the authority for accepting one. */
+export function generateMapMatchCandidates(input: Readonly<{
+  traversal: CandidateTraversal;
+  projectStreetSegments: readonly ProjectStreetSegment[];
+  previousProjectStreetSegmentId?: string;
+}>): readonly MatchCandidate[] {
+  const traversalMetres = distanceBetween(input.traversal.from, input.traversal.to);
+  if (!finite(traversalMetres) || traversalMetres <= 0) return [];
+  const traversalHeading = headingDegrees(input.traversal.from, input.traversal.to);
+
+  return input.projectStreetSegments.flatMap((segment): MatchCandidate[] => {
+    if (!segment.eligible || segment.geometry.length < 2 || segment.lengthMetres <= 0) return [];
+    const start = projectOntoPolyline(input.traversal.from, segment.geometry);
+    const end = projectOntoPolyline(input.traversal.to, segment.geometry);
+    if (!start || !end) return [];
+    const matchedMetres = Math.abs(end.offsetMetres - start.offsetMetres);
+    const continuityScore = clamp(1 - Math.abs(traversalMetres - matchedMetres) / Math.max(traversalMetres, matchedMetres, 1), 0, 1);
+    const sameAsPrevious = input.previousProjectStreetSegmentId === segment.id;
+    const connectedToPrevious = !input.previousProjectStreetSegmentId || sameAsPrevious || segment.connectedProjectStreetSegmentIds?.includes(input.previousProjectStreetSegmentId) === true;
+    return [{
+      projectStreetSegment: segment,
+      lateralDistanceMetres: Number(Math.max(start.distanceMetres, end.distanceMetres).toFixed(3)),
+      headingDeltaDegrees: Number(Math.max(undirectedHeadingDelta(traversalHeading, start.headingDegrees), undirectedHeadingDelta(traversalHeading, end.headingDegrees)).toFixed(3)),
+      continuityScore: Number(continuityScore.toFixed(6)),
+      startOffsetMetres: Number(start.offsetMetres.toFixed(3)),
+      endOffsetMetres: Number(end.offsetMetres.toFixed(3)),
+      continuesFromPrevious: connectedToPrevious,
+    }];
+  });
+}
+
+export function buildMapMatchEvidence(input: Readonly<{
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  searchSessionId: string;
+  traversal: CandidateTraversal;
+  candidates: readonly MatchCandidate[];
+  outcome: MatchOutcome;
+  policy: MapMatchPolicy;
+  createdAt: string;
+}>): PersistableMapMatchEvidence {
+  if (!input.id || !input.searchSessionId || !Number.isFinite(Date.parse(input.createdAt))) throw new Error('Map-match evidence identity or timestamp is invalid.');
+  return {
+    id: input.id,
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    searchSessionId: input.searchSessionId,
+    candidateTraversalId: input.traversal.id,
+    sourceEvidenceIds: [input.traversal.fromEvidenceId, input.traversal.toEvidenceId],
+    outcome: input.outcome.status,
+    selectedProjectStreetSegmentId: input.outcome.status === 'MATCHED' ? input.outcome.candidate.projectStreetSegment.id : null,
+    reason: input.outcome.reason,
+    candidates: input.candidates.map((candidate) => ({
+      projectStreetSegmentId: candidate.projectStreetSegment.id,
+      lateralDistanceMetres: candidate.lateralDistanceMetres,
+      headingDeltaDegrees: candidate.headingDeltaDegrees,
+      continuityScore: candidate.continuityScore,
+      startOffsetMetres: candidate.startOffsetMetres,
+      endOffsetMetres: candidate.endOffsetMetres,
+      continuesFromPrevious: candidate.continuesFromPrevious,
+    })),
+    algorithmVersion: input.policy.algorithmVersion,
+    coveragePolicyVersion: input.policy.coveragePolicyVersion,
+    createdAt: new Date(input.createdAt).toISOString(),
+  };
 }
 
 function candidateScore(candidate: MatchCandidate, policy: MapMatchPolicy): number {
