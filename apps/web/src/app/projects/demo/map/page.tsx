@@ -21,7 +21,7 @@ export default function ProjectMapPage() {
             <header className={styles.top}><div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div><div className={styles.topRight}><button className={styles.location}>⌖ &nbsp; Soweto⌄</button><span className={styles.bell}>♧</span><span className={styles.user}>B</span></div></header>
             <div className={styles.content}>
                 <section className={styles.heading}><div><h1>Project Map & Coverage</h1><p>Know what was searched, what is verified and what remains unknown.</p></div><div className={styles.projectSelect}><span>Soweto Retail Universe</span><b>Active</b></div></section>
-                <section className={styles.mapPanel}><div className={styles.mapToolbar}><div className={styles.mapTypes}><span className={styles.selected}>Map</span><span>Satellite</span><span>Hybrid</span><span>Terrain</span></div><div className={styles.mapTools}><button>▱ Layers</button><button>▽ Filter</button><button>⌾ Locate</button><button>⛶</button></div></div><ProjectGoogleMap /></section>
+                <section className={styles.mapPanel}><ProjectGoogleMap classes={{ mapToolbar: styles.mapToolbar, mapTypes: styles.mapTypes, selected: styles.selected, mapTools: styles.mapTools }} /></section>
                 <section className={styles.metrics}>{metrics.map(([icon,value,label]) => <article key={label}><i>{icon}</i><div><strong>{value}</strong><span>{label}</span></div></article>)}</section>
 
                 <section className={styles.insightPanel} aria-label="Coverage evidence model">
