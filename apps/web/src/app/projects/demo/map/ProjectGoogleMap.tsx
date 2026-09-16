@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ProjectCoverageMap, { type CoverageMapType } from '../../../../components/ProjectCoverageMap';
 
 type ToolbarClasses = Readonly<{
@@ -19,6 +19,31 @@ export default function ProjectGoogleMap({ classes }: { classes: ToolbarClasses 
   const [coverageLayerVisible, setCoverageLayerVisible] = useState(true);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [locateRequest, setLocateRequest] = useState(0);
+  const preferencesLoadedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const saved = window.sessionStorage.getItem('survey-guru:project-map-toolbar');
+      if (saved) {
+        const preferences = JSON.parse(saved) as { mapType?: CoverageMapType; coverageLayerVisible?: boolean; filtersVisible?: boolean };
+        if (preferences.mapType && mapTypes.some(([value]) => value === preferences.mapType)) setMapType(preferences.mapType);
+        if (typeof preferences.coverageLayerVisible === 'boolean') setCoverageLayerVisible(preferences.coverageLayerVisible);
+        if (typeof preferences.filtersVisible === 'boolean') setFiltersVisible(preferences.filtersVisible);
+      }
+    } catch {
+      // Invalid session preferences should not block the project map.
+    }
+    preferencesLoadedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesLoadedRef.current) return;
+    try {
+      window.sessionStorage.setItem('survey-guru:project-map-toolbar', JSON.stringify({ mapType, coverageLayerVisible, filtersVisible }));
+    } catch {
+      // Controls remain functional when session storage is unavailable.
+    }
+  }, [coverageLayerVisible, filtersVisible, mapType]);
 
   const enterFullscreen = (button: HTMLButtonElement) => {
     const panel = button.closest('section');
