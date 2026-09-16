@@ -68,7 +68,7 @@ async function requireOwnedCapture(request: Parameters<typeof verifyRequestIdent
   const identity = await verifyRequestIdentity(request);
   const authority = await resolveAuthority(identity);
   requirePermission(authority, 'field.capture');
-  const { firestore } = getFirebaseAdminServices();
+  const { firestore, storage } = getFirebaseAdminServices();
   const capture = await firestore.collection('storeCaptures').doc(captureId).get();
   if (!capture.exists || capture.get('workspaceId') !== authority.workspaceId || capture.get('capturerUserId') !== identity.uid) throw new AuthorisationError('Store capture is outside the authorised scope.');
   const assignmentId = capture.get('assignmentId');
@@ -76,7 +76,25 @@ async function requireOwnedCapture(request: Parameters<typeof verifyRequestIdent
   if (typeof assignmentId !== 'string' || typeof projectId !== 'string') throw new AuthorisationError('Store capture scope is invalid.');
   requireAssignmentScope(authority, assignmentId);
   requireProjectScope(authority, projectId);
-  return { identity, authority, firestore, capture, assignmentId, projectId };
+  return { identity, authority, firestore, storage, capture, assignmentId, projectId };
+}
+
+async function verifyStoredPhotos(storage: ReturnType<typeof getFirebaseAdminServices>['storage'], photos: readonly StorePhotoEvidence[]): Promise<readonly string[]> {
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+  if (!bucketName) return ['FIREBASE_STORAGE_BUCKET must be configured before photo evidence can be submitted.'];
+  const bucket = storage.bucket(bucketName);
+  const issues: string[] = [];
+  for (const photo of photos) {
+    try {
+      const [metadata] = await bucket.file(photo.storageObjectPath).getMetadata();
+      if (!String(metadata.contentType ?? '').startsWith('image/')) issues.push('Store photo evidence must be an image.');
+      if (!Number.isFinite(Number(metadata.size)) || Number(metadata.size) <= 0) issues.push('Store photo evidence is empty.');
+      if (metadata.metadata?.sha256 !== photo.sha256) issues.push('Store photo evidence hash does not match the uploaded object.');
+    } catch {
+      issues.push('Store photo evidence could not be verified in authorised storage.');
+    }
+  }
+  return issues;
 }
 
 export function registerStoreCaptureRoutes(app: FastifyInstance): void {
@@ -131,7 +149,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
   });
 
   app.post<{ Params: { captureId: string } }>('/api/v1/store-captures/:captureId/submit', async (request) => {
-    const { authority, firestore, capture, assignmentId, projectId } = await requireOwnedCapture(request, request.params.captureId);
+    const { authority, firestore, storage, capture, assignmentId, projectId } = await requireOwnedCapture(request, request.params.captureId);
     const project = await firestore.collection('projects').doc(projectId).get();
     const configuredQuestions = project.get('storeCaptureRequiredQuestionIds');
     const requiredQuestionIds = Array.isArray(configuredQuestions) && configuredQuestions.every((value) => typeof value === 'string')
@@ -151,6 +169,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const issues = [...validateStoreCaptureSubmission(draft, requiredQuestionIds)];
     const expectedPrefix = `workspaces/${authority.workspaceId}/projects/${projectId}/captures/${capture.id}/`;
     if (draft.photos.some((photo) => !photo.storageObjectPath.startsWith(expectedPrefix))) issues.push('Photo evidence is outside the authorised capture path.');
+    issues.push(...await verifyStoredPhotos(storage, draft.photos));
     if (issues.length > 0) throw new StoreCaptureRequestError(issues.join(' '));
     const submittedAt = new Date().toISOString();
     await capture.ref.update({ status: 'SUBMITTED', submittedAt, updatedAt: submittedAt });
