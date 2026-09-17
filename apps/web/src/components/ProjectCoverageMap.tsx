@@ -31,7 +31,7 @@ type CoverageResponse = {
   streetSegments: CoverageSegment[];
   capturedStores?: CapturedStore[];
   storeInsights?: { totalCaptures: number; correctCaptures: number; capturedToday: number; densityPerSquareKm: number | null; statusCounts: Record<string, number>; brandPerformance: Array<{ brand: string; stores: number }>; capturers: Array<{ userId: string; name: string; captures: number }> };
-  summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number };
+  summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number; totalRoadMetres?: number; walkedRoadMetres?: number; walkedPercent?: number; capturedStoreCount?: number; capturedStoreScope?: 'ALL_PROJECT_USERS' | 'CURRENT_USER' };
   message?: string;
 };
 type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
@@ -58,7 +58,7 @@ function coverageSignature(coverage: CoverageResponse): string {
     return `${segment.projectStreetSegmentId}:${segment.coverageState}:${segment.coverageColour}:${slices}`;
   }).join(';');
   const stores = (coverage.capturedStores ?? []).map((store) => `${store.captureId}:${store.status}:${store.photoCount}:${store.capturedToday}:${store.capturerUserId}:${store.location.latitude}:${store.location.longitude}`).join(';');
-  return `${streets}::${stores}`;
+  return `${streets}::${stores}::${coverage.summary.walkedPercent ?? 0}:${coverage.summary.capturedStoreCount ?? 0}:${coverage.summary.capturedStoreScope ?? ''}`;
 }
 export const darkRoadmapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0c1e27' }] },
@@ -445,7 +445,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         {captureHref ? <a href={captureHref}>＋ Capture store</a> : null}
       </div> : null}
     </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
-    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><span><i className={storeStyles.todayDot}/>Correct today</span><span><i className={storeStyles.storeDot}/>Correct earlier</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
+    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><span><i className={storeStyles.todayDot}/>Correct today</span><span><i className={storeStyles.storeDot}/>Correct earlier</span>{coverage ? <><span className={styles.mapMetric}><strong>{coverage.summary.walkedPercent ?? 0}%</strong> roads walked</span><span className={styles.mapMetric}><strong>{coverage.summary.capturedStoreCount ?? 0}</strong> stores captured · {coverage.summary.capturedStoreScope === 'ALL_PROJECT_USERS' ? 'all users' : 'you'}</span></> : null}<b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
     {variant !== 'field' && coverage?.storeInsights ? <div className={storeStyles.insights}><span><b>{coverage.storeInsights.correctCaptures}</b> correct stores</span><span><b>{coverage.storeInsights.capturedToday}</b> today</span><span><b>{coverage.storeInsights.densityPerSquareKm ?? '—'}</b> stores/km²</span><span><b>{coverage.storeInsights.statusCounts['SUBMITTED'] ?? 0}</b> in review</span><span><b>{coverage.storeInsights.statusCounts['REJECTED'] ?? 0}</b> rejected</span>{coverage.storeInsights.brandPerformance.slice(0, 3).map((item) => <span key={item.brand}><b>{item.stores}</b> {item.brand}</span>)}</div> : null}
     {error ? <p className={styles.error}>{error}</p> : null}
   </section>;
