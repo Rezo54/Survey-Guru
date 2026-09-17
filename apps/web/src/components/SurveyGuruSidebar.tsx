@@ -43,20 +43,25 @@ const groups: ReadonlyArray<ReadonlyArray<NavItem>> = [
 ];
 
 export default function SurveyGuruSidebar({ active }: SurveyGuruSidebarProps) {
-    const [administrator, setAdministrator] = useState(false);
+    const [administrator, setAdministrator] = useState<boolean | null>(null);
     useEffect(() => {
         let cancelled = false;
         void (async () => {
-            try {
+            for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) try {
                 const token = await getFieldToken();
                 const response = await fetch(`${fieldApiOrigin()}/api/v1/me`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
                 const body = await response.json() as { authority?: { permissions?: string[] } };
-                if (!cancelled) setAdministrator(response.ok && body.authority?.permissions?.includes('workspace.admin') === true);
-            } catch { if (!cancelled) setAdministrator(false); }
+                if (!response.ok) throw new Error('Authority unavailable');
+                if (!cancelled) setAdministrator(body.authority?.permissions?.includes('workspace.admin') === true);
+                return;
+            } catch {
+                if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 450 * (attempt + 1)));
+            }
+            if (!cancelled) setAdministrator(false);
         })();
         return () => { cancelled = true; };
     }, []);
-    const visibleGroups = administrator ? groups : [groups[1]!];
+    const visibleGroups = administrator === true ? groups : administrator === false ? [groups[1]!] : [];
     return (
         <aside className={styles.side}>
             <div className={styles.sidebarTop}>
