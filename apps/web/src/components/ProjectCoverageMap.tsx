@@ -121,6 +121,10 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const storeMarkersRef = useRef<any[]>([]);
   const photoUrlsRef = useRef<string[]>([]);
   const locationMarkerRef = useRef<any>(null);
+  const locationAccuracyRef = useRef<any>(null);
+  const locationWatchRef = useRef<number | null>(null);
+  const latestLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  const locationControlRef = useRef<HTMLButtonElement | null>(null);
   const searchControlRef = useRef<HTMLDivElement | null>(null);
   const placeListenerRef = useRef<any>(null);
   const zoomListenerRef = useRef<any>(null);
@@ -244,20 +248,13 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
 
   useEffect(() => {
     if (locateRequest < 1 || !mapRef.current || !window.google?.maps) return;
-    if (!navigator.geolocation) {
+    if (!navigator.geolocation || !latestLocationRef.current) {
       setError('Location is not available in this browser.');
       return;
     }
-    navigator.geolocation.getCurrentPosition(({ coords }) => {
-      const position = { lat: coords.latitude, lng: coords.longitude };
-      mapRef.current.panTo(position);
-      mapRef.current.setZoom(Math.max(mapRef.current.getZoom() ?? 14, 16));
-      if (locationMarkerRef.current) { if (typeof locationMarkerRef.current.setMap === 'function') locationMarkerRef.current.setMap(null); else locationMarkerRef.current.map = null; }
-      locationMarkerRef.current = mapId && window.google.maps.marker?.AdvancedMarkerElement
-        ? new window.google.maps.marker.AdvancedMarkerElement({ map: mapRef.current, position, title: 'Your current location', zIndex: 20 })
-        : new window.google.maps.Marker({ map: mapRef.current, position, title: 'Your current location', zIndex: 20 });
-      setError(null);
-    }, () => setError('Your current location could not be determined. Check browser location permission.'));
+    mapRef.current.panTo(latestLocationRef.current);
+    mapRef.current.setZoom(Math.max(mapRef.current.getZoom() ?? 14, 17));
+    setError(null);
   }, [locateRequest]);
 
   useEffect(() => {
@@ -272,24 +269,42 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
       mapRef.current = map;
-      if (!placeListenerRef.current && !searchControlRef.current) void loadGooglePlaces().then(() => {
-        if (cancelled || searchControlRef.current || !maps.places?.Autocomplete) return;
-        const control = document.createElement('div');
-        control.className = styles.googlePlaceSearch ?? '';
-        const icon = document.createElement('span'); icon.textContent = '⌕';
-        const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search Google Maps'; input.setAttribute('aria-label', 'Search Google Maps for a place or street');
-        control.append(icon, input);
-        map.controls[maps.ControlPosition.TOP_LEFT].push(control);
-        searchControlRef.current = control;
-        const autocomplete = new maps.places.Autocomplete(input, { fields: ['geometry', 'name', 'formatted_address'] });
-        autocomplete.bindTo('bounds', map);
-        placeListenerRef.current = autocomplete.addListener('place_changed', () => {
-          const place = autocomplete.getPlace();
-          if (!place.geometry?.location) return setError('Select a Google Places result to move the map.');
-          if (place.geometry.viewport) map.fitBounds(place.geometry.viewport);
-          else { map.panTo(place.geometry.location); map.setZoom(17); }
-          setError(null);
+      if (!locationControlRef.current) {
+        const locate = document.createElement('button');
+        locate.type = 'button'; locate.className = styles.locationControl ?? ''; locate.title = 'Snap to my live location'; locate.setAttribute('aria-label', 'Snap map to my live location'); locate.textContent = '◎';
+        locate.addEventListener('click', () => {
+          if (!latestLocationRef.current) return setError('Waiting for your live location. Check location permission.');
+          map.panTo(latestLocationRef.current); map.setZoom(Math.max(map.getZoom() ?? 14, 17)); setError(null);
         });
+        map.controls[maps.ControlPosition.RIGHT_BOTTOM].push(locate); locationControlRef.current = locate;
+      }
+      if (locationWatchRef.current === null && navigator.geolocation && window.isSecureContext) {
+        locationWatchRef.current = navigator.geolocation.watchPosition(({ coords }) => {
+          const position = { lat: coords.latitude, lng: coords.longitude }; latestLocationRef.current = position;
+          if (locationMarkerRef.current) {
+            if (typeof locationMarkerRef.current.setPosition === 'function') locationMarkerRef.current.setPosition(position);
+            else locationMarkerRef.current.position = position;
+          } else if (mapId && maps.marker?.AdvancedMarkerElement) {
+            const pin = document.createElement('div'); pin.className = styles.liveLocationPin ?? ''; pin.innerHTML = '<span></span>';
+            locationMarkerRef.current = new maps.marker.AdvancedMarkerElement({ map, position, title: 'Your live location', zIndex: 30, content: pin });
+          } else locationMarkerRef.current = new maps.Marker({ map, position, title: 'Your live location', zIndex: 30, icon: { path: maps.SymbolPath.CIRCLE, fillColor: '#1479ff', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3, scale: 8 } });
+          if (!locationAccuracyRef.current) locationAccuracyRef.current = new maps.Circle({ map, center: position, radius: coords.accuracy, strokeColor: '#1479ff', strokeOpacity: .45, strokeWeight: 1, fillColor: '#1479ff', fillOpacity: .1, clickable: false, zIndex: 5 });
+          else { locationAccuracyRef.current.setCenter(position); locationAccuracyRef.current.setRadius(coords.accuracy); }
+        }, () => undefined, { enableHighAccuracy: true, maximumAge: 5_000, timeout: 20_000 });
+      }
+      if (!placeListenerRef.current && !searchControlRef.current) void loadGooglePlaces().then(() => {
+        if (cancelled || searchControlRef.current) return;
+        const control = document.createElement('div'); control.className = styles.googlePlaceSearch ?? '';
+        if (maps.places?.PlaceAutocompleteElement) {
+          const autocomplete = new maps.places.PlaceAutocompleteElement({}); autocomplete.setAttribute('placeholder', 'Search places and streets'); autocomplete.setAttribute('aria-label', 'Search Google Maps'); control.append(autocomplete);
+          const onSelect = async (event: any) => { const place = event.placePrediction?.toPlace?.(); if (!place) return; await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'viewport'] }); if (place.viewport) map.fitBounds(place.viewport); else if (place.location) { map.panTo(place.location); map.setZoom(17); } setError(null); };
+          autocomplete.addEventListener('gmp-select', onSelect); placeListenerRef.current = { remove: () => autocomplete.removeEventListener('gmp-select', onSelect) };
+        } else if (maps.places?.Autocomplete) {
+          const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search places and streets'; input.setAttribute('aria-label', 'Search Google Maps'); control.append(input);
+          const autocomplete = new maps.places.Autocomplete(input, { fields: ['geometry', 'name', 'formatted_address'] }); autocomplete.bindTo('bounds', map);
+          placeListenerRef.current = autocomplete.addListener('place_changed', () => { const place = autocomplete.getPlace(); if (!place.geometry?.location) return; if (place.geometry.viewport) map.fitBounds(place.geometry.viewport); else { map.panTo(place.geometry.location); map.setZoom(17); } setError(null); });
+        } else return;
+        map.controls[maps.ControlPosition.TOP_CENTER].push(control); searchControlRef.current = control;
       }).catch(() => setError('Google Places search is temporarily unavailable.'));
       if (variant !== 'field' && !controlsAttachedRef.current) {
         const controlHost = document.createElement('div');
@@ -402,6 +417,10 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     photoUrlsRef.current = [];
     if (locationMarkerRef.current) { if (typeof locationMarkerRef.current.setMap === 'function') locationMarkerRef.current.setMap(null); else locationMarkerRef.current.map = null; }
     locationMarkerRef.current = null;
+    locationAccuracyRef.current?.setMap?.(null); locationAccuracyRef.current = null;
+    if (locationWatchRef.current !== null) navigator.geolocation.clearWatch(locationWatchRef.current);
+    locationWatchRef.current = null; latestLocationRef.current = null;
+    locationControlRef.current?.remove(); locationControlRef.current = null;
   }, []);
 
   const toggleColour = (colour: CoverageColour) => {
