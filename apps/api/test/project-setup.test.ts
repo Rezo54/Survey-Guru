@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { polygonAreaSquareKm, ProjectSetupValidationError, validateProjectSetup } from '../src/project-setup.js';
+import { polygonAreaSquareKm, ProjectSetupValidationError, validateProjectAssignment, validateProjectSetup } from '../src/project-setup.js';
 
 test('validates a practical development capture polygon', () => {
   const result = validateProjectSetup({
@@ -28,4 +28,12 @@ test('rejects an excessively broad development polygon', () => {
 test('polygon area is independent of clockwise ordering', () => {
   const boundary = [{ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 0.01 }, { latitude: 0.01, longitude: 0.01 }];
   assert.equal(polygonAreaSquareKm(boundary), polygonAreaSquareKm([...boundary].reverse()));
+});
+
+test('validates a project assignment to a Firebase identity', () => {
+  assert.deepEqual(validateProjectAssignment({ userId: '0QOnrLKulpcuBgNouOoFLEaDdKf1', areaName: 'New test block' }), { userId: '0QOnrLKulpcuBgNouOoFLEaDdKf1', areaName: 'New test block' });
+});
+
+test('rejects malformed capturer assignment input', () => {
+  assert.throws(() => validateProjectAssignment({ userId: '../wrong', areaName: '' }), ProjectSetupValidationError);
 });
