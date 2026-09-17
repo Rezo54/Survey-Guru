@@ -57,7 +57,7 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
     };
     const today = projectDay(new Date().toISOString());
     const capturedStores = authorisedCaptures
-      .filter((document) => ['READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
+      .filter((document) => ['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
       .map((document) => ({
         captureId: document.id,
         storeId: document.get('resolvedStoreId'),
