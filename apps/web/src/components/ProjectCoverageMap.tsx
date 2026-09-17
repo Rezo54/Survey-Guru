@@ -53,7 +53,7 @@ function coverageSignature(coverage: CoverageResponse): string {
     return `${segment.projectStreetSegmentId}:${segment.coverageState}:${segment.coverageColour}:${slices}`;
   }).join(';');
 }
-const darkRoadmapStyle = [
+export const darkRoadmapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0c1e27' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#91aaa4' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#0c1e27' }] },
@@ -67,7 +67,7 @@ const darkRoadmapStyle = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#07151d' }] },
 ];
 
-function loadGoogleMaps(apiKey: string): Promise<void> {
+export function loadGoogleMaps(apiKey: string): Promise<void> {
   if (window.google?.maps) return Promise.resolve();
   if (window.__surveyGuruGoogleMapsPromise) return window.__surveyGuruGoogleMapsPromise;
   window.__surveyGuruGoogleMapsPromise = new Promise<void>((resolve, reject) => {
