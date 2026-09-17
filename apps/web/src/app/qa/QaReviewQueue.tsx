@@ -134,8 +134,8 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
           <button type="button" onClick={() => void decide('VERIFY')} disabled={busy}>Verify only</button>
         </> : <button type="button" onClick={() => void decide('MARK_READY_FOR_EXPORT')} disabled={busy}>Mark ready for export</button>}</div>
         <div className={styles.secondaryActions}>
-          <button type="button" onClick={() => void decide('RETURN_FOR_CORRECTION')} disabled={busy}>Return for correction</button>
-          {selected.status === 'SUBMITTED' ? <button className={styles.reject} type="button" onClick={() => void decide('REJECT')} disabled={busy}>Reject</button> : null}
+          <button type="button" onClick={() => void decide('RETURN_FOR_CORRECTION')} disabled={busy}>Send back to capturer to redo</button>
+          {selected.status === 'SUBMITTED' ? <button className={styles.reject} type="button" onClick={() => void decide('REJECT')} disabled={busy}>Reject store permanently</button> : null}
         </div>
         <p className={styles.guardrail}>This queue contains exceptions only. Resolving one records the human decision and audit history before integration can continue.</p>
       </>}
