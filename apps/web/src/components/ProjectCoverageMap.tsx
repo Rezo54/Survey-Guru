@@ -364,16 +364,30 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           const integrationState = store.status === 'SYNCED' ? 'Synced' : store.status === 'READY_FOR_EXPORT' ? 'Ready for export' : 'Verified';
           const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${integrationState} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
           panel.append(heading, meta);
+          const answerEntries = Object.entries(store.answers ?? {});
+          const repeatedAnswer = (...names: string[]) => { const wanted = new Set(names.map((name) => name.toLowerCase().replace(/[^a-z0-9]/g, ''))); const found = answerEntries.find(([key]) => wanted.has(key.toLowerCase().replace(/[^a-z0-9]/g, '')))?.[1]; return Array.isArray(found) ? found : []; };
           const brandProducts = Array.isArray(store.answers?.brandProducts) ? store.answers.brandProducts as Array<Record<string, unknown>> : [];
-          if (brandProducts.length) for (const item of brandProducts) {
-            const detail = document.createElement('span');
-            const purchase = typeof item.purchasePrice === 'number' ? `buy R${item.purchasePrice.toFixed(2)}` : 'purchase price unavailable';
-            const selling = typeof item.sellingPrice === 'number' ? `sell R${item.sellingPrice.toFixed(2)}` : 'selling price unavailable';
-            const volume = typeof item.dailySalesVolume === 'number' ? `${item.dailySalesVolume} sold daily` : 'daily volume unavailable';
-            detail.textContent = `${String(item.brand ?? 'Brand')} · ${String(item.product ?? 'Product')} · ${purchase} · ${selling} · ${volume}`;
-            panel.append(detail);
-          }
-          else {
+          const repeatedBrands = repeatedAnswer('selectBrand', 'brandSelection', 'brand');
+          const repeatedProducts = repeatedAnswer('product');
+          const repeatedSizes = repeatedAnswer('selectProductType', 'productSize');
+          const repeatedPurchase = repeatedAnswer('costPrice', 'purchasePrice');
+          const repeatedSelling = repeatedAnswer('sellingPrice');
+          const repeatedVolume = repeatedAnswer('volume', 'dailyVolume', 'dailySalesVolume');
+          const customProductCount = Math.max(repeatedBrands.length, repeatedProducts.length, repeatedSizes.length, repeatedPurchase.length, repeatedSelling.length, repeatedVolume.length);
+          const productRows = brandProducts.length ? brandProducts : Array.from({ length: customProductCount }, (_, index) => ({ brand: repeatedBrands[index], product: [repeatedProducts[index], repeatedSizes[index]].filter(Boolean).join(' '), purchasePrice: repeatedPurchase[index], sellingPrice: repeatedSelling[index], dailySalesVolume: repeatedVolume[index] }));
+          if (productRows.length) {
+            const productSales = document.createElement('details'); productSales.className = storeStyles.productSales ?? '';
+            const productSalesToggle = document.createElement('summary'); productSalesToggle.textContent = '＋ Product sales'; productSales.append(productSalesToggle);
+            for (const item of productRows) {
+              const detail = document.createElement('span');
+              const purchase = typeof item.purchasePrice === 'number' ? `buy R${item.purchasePrice.toFixed(2)}` : 'purchase price unavailable';
+              const selling = typeof item.sellingPrice === 'number' ? `sell R${item.sellingPrice.toFixed(2)}` : 'selling price unavailable';
+              const volume = typeof item.dailySalesVolume === 'number' ? `${item.dailySalesVolume} sold daily` : 'daily volume unavailable';
+              detail.textContent = `${String(item.brand ?? 'Brand')} · ${String(item.product ?? 'Product')} · ${purchase} · ${selling} · ${volume}`;
+              productSales.append(detail);
+            }
+            panel.append(productSales);
+          } else {
             const pricing = Array.isArray(store.answers?.pricing) ? store.answers.pricing as Array<{ product?: unknown; price?: unknown }> : [];
             for (const item of pricing) { const detail = document.createElement('span'); detail.textContent = `${String(item.product ?? 'Product')} · ${typeof item.price === 'number' ? item.price.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' }) : 'Price unavailable'}`; panel.append(detail); }
           }
