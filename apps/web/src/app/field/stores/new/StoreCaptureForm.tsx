@@ -9,7 +9,16 @@ import { fieldApiOrigin, getFieldToken } from '../../map/field-api';
 import s from './store-capture.module.css';
 
 type Location = { latitude: number; longitude: number; accuracyMetres: number };
-type DraftResponse = { storeCapture?: { id: string; workspaceId: string; projectId: string }; message?: string };
+type DraftResponse = {
+  storeCapture?: {
+    id: string;
+    workspaceId: string;
+    projectId: string;
+    status?: 'DRAFT' | 'SUBMITTED' | 'VERIFIED' | 'READY_FOR_EXPORT';
+    automatedQa?: { outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW' };
+  };
+  message?: string;
+};
 
 async function sha256(file: File): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
@@ -26,6 +35,7 @@ export default function StoreCaptureForm() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
+  const [receipt, setReceipt] = useState<{ captureId: string; status: string; automatedOutcome: string } | null>(null);
 
   function locate() {
     if (!navigator.geolocation) return setMessage('Location is not available in this browser.');
@@ -83,15 +93,20 @@ export default function StoreCaptureForm() {
       const photos = [{ storageObjectPath, sha256: digest, capturedAt: new Date().toISOString() }];
       setMessage('Submitting for verification…');
       await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}`, 'PATCH', { ...baseBody, photos });
-      await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}/submit`, 'POST');
+      const submitted = await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}/submit`, 'POST');
+      const submittedCapture = submitted.storeCapture;
+      const automatedOutcome = submittedCapture?.automatedQa?.outcome ?? 'MANUAL_REVIEW';
+      setReceipt({ captureId: activeDraft.id, status: submittedCapture?.status ?? 'SUBMITTED', automatedOutcome });
       setComplete(true);
-      setMessage('Store submitted for verification. It will not be exported until QA marks it ready.');
+      setMessage(automatedOutcome === 'AUTO_VERIFIED'
+        ? 'Automated checks passed. A supervisor must still give final export approval.'
+        : 'Store sent to human QA because one or more automated checks require review.');
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'The store capture could not be saved.');
     } finally { setBusy(false); }
   }
 
-  if (complete) return <section className={s.success} role="status"><span>✓</span><div><h2>Store submitted</h2><p>{message}</p><Link href={`/field/map${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`}>Return to the coverage map</Link></div></section>;
+  if (complete) return <section className={s.success} role="status"><span>✓</span><div><h2>Store submitted to QA</h2><p>{message}</p>{receipt ? <p><strong>Capture reference:</strong> {receipt.captureId}<br/><strong>Current state:</strong> {receipt.status === 'VERIFIED' ? 'Automated verification passed · supervisor approval pending' : 'Human QA review required'}</p> : null}<p>The capturer can continue working. An authorised supervisor reviews this record from the QA page.</p><Link href={`/field/map${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`}>Return to the coverage map</Link></div></section>;
 
   return <form className={s.form} onSubmit={submit}>
     <section className={s.card}><p className={s.eyebrow}>1 · Identify the outlet</p><label>Store name<input name="storeName" required autoComplete="organization" placeholder="Name shown at the store" /></label><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><p className={s.hint}>If the name has changed, the server can still present same-location stores for identity review without overwriting their history.</p></section>
