@@ -33,7 +33,7 @@ type CoverageResponse = {
   summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number };
   message?: string;
 };
-type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
+type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -87,7 +87,7 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
     script.id = MAP_SCRIPT_ID;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=marker`;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Google Maps failed to load.'));
     document.head.appendChild(script);
@@ -95,7 +95,7 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
   return window.__surveyGuruGoogleMapsPromise;
 }
 
-export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true, mapType = 'roadmap', coverageLayerVisible = true, controlsVisible = true, locateRequest = 0 }: {
+export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true, mapType = 'roadmap', coverageLayerVisible = true, controlsVisible = true, locateRequest = 0, captureHref }: {
   projectId: string;
   refreshKey?: number;
   variant?: 'field' | 'project' | 'dashboard';
@@ -104,6 +104,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   coverageLayerVisible?: boolean;
   controlsVisible?: boolean;
   locateRequest?: number;
+  captureHref?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -124,9 +125,31 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const [selectedCapturer, setSelectedCapturer] = useState('ALL');
   const [visibleColours, setVisibleColours] = useState<Readonly<Record<CoverageColour, boolean>>>({ red: true, green: true, amber: true });
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
+  const [colourTheme, setColourTheme] = useState<'dark' | 'light'>('dark');
+  const [expanded, setExpanded] = useState(false);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
   const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
   const effectiveCoverageVisible = coverageVisible && coverageLayerVisible;
+
+  useEffect(() => {
+    if (!expanded) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [expanded]);
+
+  useEffect(() => {
+    const readTheme = () => setColourTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+    readTheme();
+    window.addEventListener('survey-guru-theme', readTheme);
+    return () => window.removeEventListener('survey-guru-theme', readTheme);
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current || mapId) return;
+    mapRef.current.setOptions({ styles: colourTheme === 'light' ? undefined : darkRoadmapStyle });
+  }, [colourTheme, mapId]);
 
   const loadCoverage = useCallback(async () => {
     try {
@@ -181,7 +204,10 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   }, [effectiveCoverageVisible, visibleColours]);
 
   useEffect(() => {
-    for (const marker of storeMarkersRef.current) marker.setVisible(storesVisible);
+    for (const marker of storeMarkersRef.current) {
+      if (typeof marker.setVisible === 'function') marker.setVisible(storesVisible);
+      else marker.map = storesVisible ? mapRef.current : null;
+    }
   }, [storesVisible]);
 
   useEffect(() => {
@@ -198,8 +224,10 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       const position = { lat: coords.latitude, lng: coords.longitude };
       mapRef.current.panTo(position);
       mapRef.current.setZoom(Math.max(mapRef.current.getZoom() ?? 14, 16));
-      locationMarkerRef.current?.setMap(null);
-      locationMarkerRef.current = new window.google.maps.Marker({ map: mapRef.current, position, title: 'Your current location', zIndex: 20 });
+      if (locationMarkerRef.current) { if (typeof locationMarkerRef.current.setMap === 'function') locationMarkerRef.current.setMap(null); else locationMarkerRef.current.map = null; }
+      locationMarkerRef.current = mapId && window.google.maps.marker?.AdvancedMarkerElement
+        ? new window.google.maps.marker.AdvancedMarkerElement({ map: mapRef.current, position, title: 'Your current location', zIndex: 20 })
+        : new window.google.maps.Marker({ map: mapRef.current, position, title: 'Your current location', zIndex: 20 });
       setError(null);
     }, () => setError('Your current location could not be determined. Check browser location permission.'));
   }, [locateRequest]);
@@ -211,7 +239,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       if (cancelled || !hostRef.current || !window.google?.maps) return;
       const maps = window.google.maps;
       const map = mapRef.current ?? new maps.Map(hostRef.current, {
-        center: { lat: -26.2455, lng: 27.8628 }, zoom: variant === 'dashboard' ? 12 : 14, mapTypeId: mapType, styles: darkRoadmapStyle,
+        center: { lat: -26.2455, lng: 27.8628 }, zoom: variant === 'dashboard' ? 12 : 14, mapTypeId: mapType, styles: mapId || colourTheme === 'light' ? undefined : darkRoadmapStyle, ...(mapId ? { mapId } : {}),
         streetViewControl: false, mapTypeControl: variant === 'project', fullscreenControl: true, zoomControl: true,
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
@@ -222,7 +250,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         controlsAttachedRef.current = true;
         setControlsHost(controlHost);
       }
-      for (const overlay of overlaysRef.current) overlay.setMap(null);
+      for (const overlay of overlaysRef.current) { if (typeof overlay.setMap === 'function') overlay.setMap(null); else overlay.map = null; }
       overlaysRef.current = [];
       roadLinesRef.current = [];
       storeMarkersRef.current = [];
@@ -251,15 +279,32 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         if (!Number.isFinite(store.location?.latitude) || !Number.isFinite(store.location?.longitude)) continue;
         const position = { lat: store.location.latitude, lng: store.location.longitude };
         bounds.extend(position);
-        const marker = new maps.Marker({ map, position, title: `${store.name} · ${store.capturerName ?? 'Capturer unavailable'}`, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: store.capturedToday ? '#f3b333' : '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: store.capturedToday ? 8 : 7 } });
+        const title = `${store.name} · ${store.capturerName ?? 'Capturer unavailable'}`;
+        let marker: any;
+        if (mapId && maps.marker?.AdvancedMarkerElement) {
+          const dot = document.createElement('div'); dot.className = store.capturedToday ? (storeStyles.advancedTodayMarker ?? '') : (storeStyles.advancedStoreMarker ?? '');
+          marker = new maps.marker.AdvancedMarkerElement({ map: storesVisible ? map : null, position, title, zIndex: 12, content: dot });
+        } else marker = new maps.Marker({ map, position, title, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: store.capturedToday ? '#f3b333' : '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: store.capturedToday ? 8 : 7 } });
         const infoWindow = new maps.InfoWindow();
         marker.addListener('click', () => {
           const panel = document.createElement('div'); panel.className = storeStyles.storePopup ?? '';
           const heading = document.createElement('strong'); heading.textContent = store.name;
-          const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${store.status === 'SYNCED' ? 'Synced' : 'Ready for export'} · ${store.capturedAt ? new Date(store.capturedAt).toLocaleString('en-ZA') : 'Captured'}`;
+          const localTime = store.capturedAt ? new Date(store.capturedAt).toLocaleString('en-ZA', { timeZone: store.projectTimeZone ?? 'Africa/Johannesburg', dateStyle: 'medium', timeStyle: 'medium' }) : 'Captured';
+          const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${store.status === 'SYNCED' ? 'Synced' : 'Ready for export'} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
           panel.append(heading, meta);
-          const pricing = Array.isArray(store.answers?.pricing) ? store.answers.pricing as Array<{ product?: unknown; price?: unknown }> : [];
-          for (const item of pricing) { const detail = document.createElement('span'); detail.textContent = `${String(item.product ?? 'Product')} · ${typeof item.price === 'number' ? item.price.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' }) : 'Price unavailable'}`; panel.append(detail); }
+          const brandProducts = Array.isArray(store.answers?.brandProducts) ? store.answers.brandProducts as Array<Record<string, unknown>> : [];
+          if (brandProducts.length) for (const item of brandProducts) {
+            const detail = document.createElement('span');
+            const purchase = typeof item.purchasePrice === 'number' ? `buy R${item.purchasePrice.toFixed(2)}` : 'purchase price unavailable';
+            const selling = typeof item.sellingPrice === 'number' ? `sell R${item.sellingPrice.toFixed(2)}` : 'selling price unavailable';
+            const volume = typeof item.dailySalesVolume === 'number' ? `${item.dailySalesVolume} sold daily` : 'daily volume unavailable';
+            detail.textContent = `${String(item.brand ?? 'Brand')} · ${String(item.product ?? 'Product')} · ${purchase} · ${selling} · ${volume}`;
+            panel.append(detail);
+          }
+          else {
+            const pricing = Array.isArray(store.answers?.pricing) ? store.answers.pricing as Array<{ product?: unknown; price?: unknown }> : [];
+            for (const item of pricing) { const detail = document.createElement('span'); detail.textContent = `${String(item.product ?? 'Product')} · ${typeof item.price === 'number' ? item.price.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' }) : 'Price unavailable'}`; panel.append(detail); }
+          }
           if (store.photoCount > 0) {
             const gallery = document.createElement('div'); gallery.className = storeStyles.storeGallery ?? '';
             const loading = document.createElement('span'); loading.textContent = `Loading ${store.photoCount} photo${store.photoCount === 1 ? '' : 's'}…`; gallery.append(loading); panel.append(gallery);
@@ -292,18 +337,18 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, coverage, selectedCapturer, variant]);
+  }, [apiKey, colourTheme, coverage, mapId, selectedCapturer, variant]);
 
   useEffect(() => () => {
     zoomListenerRef.current?.remove?.();
     zoomListenerRef.current = null;
-    for (const overlay of overlaysRef.current) overlay.setMap(null);
+    for (const overlay of overlaysRef.current) { if (typeof overlay.setMap === 'function') overlay.setMap(null); else overlay.map = null; }
     overlaysRef.current = [];
     roadLinesRef.current = [];
     storeMarkersRef.current = [];
     for (const url of photoUrlsRef.current) URL.revokeObjectURL(url);
     photoUrlsRef.current = [];
-    locationMarkerRef.current?.setMap(null);
+    if (locationMarkerRef.current) { if (typeof locationMarkerRef.current.setMap === 'function') locationMarkerRef.current.setMap(null); else locationMarkerRef.current.map = null; }
     locationMarkerRef.current = null;
   }, []);
 
@@ -319,11 +364,15 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
   </div> : null;
 
-  return <section className={styles.frame} data-variant={variant} data-header={showHeader ? 'true' : 'false'} aria-label="Shared project street coverage map">
+  return <section className={`${styles.frame} ${expanded ? styles.expanded : ''}`} data-variant={variant} data-header={showHeader ? 'true' : 'false'} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
     {apiKey ? <>
       <div ref={hostRef} className={styles.canvas} />
       {controlsHost && coverageControls ? createPortal(coverageControls, controlsHost) : null}
+      {variant === 'field' ? <div className={styles.fieldMapActions} aria-label="Field map actions">
+        <button type="button" onClick={() => setExpanded((current) => !current)} aria-pressed={expanded}>{expanded ? '↙ Close expanded map' : '⤢ Expand map'}</button>
+        {captureHref ? <a href={captureHref}>＋ Capture store</a> : null}
+      </div> : null}
     </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
     <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><span><i className={storeStyles.todayDot}/>Correct today</span><span><i className={storeStyles.storeDot}/>Correct earlier</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
     {variant !== 'field' && coverage?.storeInsights ? <div className={storeStyles.insights}><span><b>{coverage.storeInsights.correctCaptures}</b> correct stores</span><span><b>{coverage.storeInsights.capturedToday}</b> today</span><span><b>{coverage.storeInsights.densityPerSquareKm ?? '—'}</b> stores/km²</span><span><b>{coverage.storeInsights.statusCounts['SUBMITTED'] ?? 0}</b> in review</span><span><b>{coverage.storeInsights.statusCounts['REJECTED'] ?? 0}</b> rejected</span>{coverage.storeInsights.brandPerformance.slice(0, 3).map((item) => <span key={item.brand}><b>{item.stores}</b> {item.brand}</span>)}</div> : null}
