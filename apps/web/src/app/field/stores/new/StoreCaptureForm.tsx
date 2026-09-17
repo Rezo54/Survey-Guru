@@ -11,6 +11,8 @@ import s from './store-capture.module.css';
 type Location = { latitude: number; longitude: number; accuracyMetres: number };
 type IdentityCandidate = { storeId: string; canonicalName: string; distanceMetres: number; reason: 'SAME_LOCATION_NAME_MATCH' | 'SAME_LOCATION_NAME_CHANGED' | 'NEARBY_POSSIBLE_DUPLICATE' };
 type Preflight = { allowed: boolean; reasons: { key: 'GPS_ACCURACY' | 'PROJECT_BOUNDARY' | 'IDENTITY'; message: string }[]; identityCandidates: IdentityCandidate[] };
+type ProjectQuestion = { id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: string[] };
+type CaptureFormConfig = { timeZone: string; form: { templateId: 'STANDARD_FMCG' | 'CUSTOM'; questions: ProjectQuestion[] } };
 type ApiResponse = {
   storeCapture?: { id: string; workspaceId: string; projectId: string; observedName?: string; correctionReason?: string; status?: 'DRAFT' | 'SUBMITTED' | 'NEEDS_REVIEW' | 'VERIFIED' | 'READY_FOR_EXPORT'; automatedQa?: { outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW' } };
   preflight?: Preflight;
@@ -63,7 +65,24 @@ export default function StoreCaptureForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
   const [receipt, setReceipt] = useState<{ captureId: string; status: string; automatedOutcome: string } | null>(null);
+  const [formConfig, setFormConfig] = useState<CaptureFormConfig>({ timeZone: 'Africa/Johannesburg', form: { templateId: 'STANDARD_FMCG', questions: [] } });
+  const [brandRows, setBrandRows] = useState([1]);
   const locationPromptRequested = useRef(false);
+
+  useEffect(() => {
+    if (!assignmentId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getFieldToken();
+        const response = await fetch(`${fieldApiOrigin()}/api/v1/assignments/${encodeURIComponent(assignmentId)}/store-capture-form`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        const result = await response.json() as CaptureFormConfig & { message?: string };
+        if (!response.ok || !result.form) throw new Error(result.message ?? 'The project questionnaire could not be loaded.');
+        if (!cancelled) setFormConfig(result);
+      } catch (error) { if (!cancelled) setMessage(error instanceof Error ? error.message : 'The project questionnaire could not be loaded.'); }
+    })();
+    return () => { cancelled = true; };
+  }, [assignmentId]);
 
   useEffect(() => {
     if (locationPromptRequested.current) return;
@@ -147,14 +166,14 @@ export default function StoreCaptureForm() {
     if (!location || !preflight?.allowed) return setMessage('Pass the location and identity check before saving.');
     if (!photo) return setMessage('Take or choose a storefront photo before saving.');
     const form = new FormData(event.currentTarget);
-    const price = parsePrice(form.get('price'));
-    if (price === null) return setMessage('Enter a valid price using a comma or full stop, for example 18,50 or 18.50.');
-    const answers = {
-      ownerName: String(form.get('ownerName') ?? '').trim(),
-      stockedBrands: String(form.get('brands') ?? '').split(',').map((value) => value.trim()).filter(Boolean),
-      pricing: [{ product: String(form.get('product') ?? '').trim(), price }],
-      monthlyVolume: Number(form.get('monthlyVolume')),
-    };
+    const brandProducts = formConfig.form.templateId === 'STANDARD_FMCG' ? brandRows.map((row) => {
+      const purchasePrice = parsePrice(form.get(`purchasePrice-${row}`));
+      const sellingPrice = parsePrice(form.get(`sellingPrice-${row}`));
+      return { brand: String(form.get(`brand-${row}`) ?? '').trim(), product: String(form.get(`product-${row}`) ?? '').trim(), purchasePrice, sellingPrice, dailySalesVolume: Number(form.get(`dailySalesVolume-${row}`)) };
+    }) : [];
+    if (brandProducts.some((item) => !item.brand || !item.product || item.purchasePrice === null || item.sellingPrice === null || !Number.isFinite(item.dailySalesVolume) || item.dailySalesVolume < 0)) return setMessage('Complete every brand row with valid purchase price, selling price and daily sales volume.');
+    const customAnswers = Object.fromEntries(formConfig.form.questions.map((question) => [question.id, question.type === 'number' ? Number(form.get(question.id)) : String(form.get(question.id) ?? '').trim()]));
+    const answers = { ...(formConfig.form.templateId === 'STANDARD_FMCG' ? { ownerName: String(form.get('ownerName') ?? '').trim(), brandProducts } : {}), ...customAnswers };
     const baseBody = { observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), ...(confirmedNewStore ? { confirmedNewStore: true } : {}), answers, photos: [] };
     setBusy(true);
     setMessage('Saving the eligible capture…');
@@ -203,7 +222,7 @@ export default function StoreCaptureForm() {
     </section>
 
     {preflight?.allowed ? <>
-      <section className={s.card}><p className={s.eyebrow}>2 · Store details</p><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="text" inputMode="decimal" autoComplete="off" pattern="[Rr]?[ ]*[0-9][0-9 ,.]*([,.][0-9]{1,2})?" title="Examples: 18,50 · 2 000,45 · 2,000.45" placeholder="2 000,45" /><span className={s.inputHint}>Examples: 18,50 · 2 000,45 · 2,000.45</span></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
+      <section className={s.card}><p className={s.eyebrow}>2 · {formConfig.form.templateId === 'STANDARD_FMCG' ? 'Store details and daily sales' : 'Project questionnaire'}</p><p className={s.timeZone}>Times for this project use {formConfig.timeZone}.</p>{formConfig.form.templateId === 'STANDARD_FMCG' ? <><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><div className={s.brandRows}>{brandRows.map((row, index) => <fieldset className={s.brandRow} key={row}><legend>Brand {index + 1}</legend><label>Brand<input name={`brand-${row}`} required placeholder="Brand name" /></label><label>Product<input name={`product-${row}`} required placeholder="Product or pack size" /></label><div className={s.priceGrid}><label>Purchase price<input name={`purchasePrice-${row}`} required type="text" inputMode="decimal" placeholder="R 20,00" /></label><label>Selling price<input name={`sellingPrice-${row}`} required type="text" inputMode="decimal" placeholder="R 22,50" /></label></div><label>Daily sales volume<input name={`dailySalesVolume-${row}`} required type="number" min="0" step="1" inputMode="numeric" placeholder="Units sold per day" /></label>{brandRows.length > 1 ? <button className={s.removeBrand} type="button" onClick={() => setBrandRows((current) => current.filter((item) => item !== row))}>Remove brand</button> : null}</fieldset>)}</div><button className={s.secondary} type="button" onClick={() => setBrandRows((current) => [...current, Math.max(...current) + 1])}>＋ Add another brand</button></> : null}{formConfig.form.questions.map((question) => <label key={question.id}>{question.label}{question.type === 'select' ? <select name={question.id} required={question.required}><option value="">Select an option</option>{question.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input name={question.id} required={question.required} type={question.type === 'number' ? 'number' : 'text'} inputMode={question.type === 'number' ? 'decimal' : undefined} />}</label>)}</section>
       <section className={s.card}><p className={s.eyebrow}>3 · Storefront evidence</p><label>Storefront photo<input required type="file" accept="image/*" capture="environment" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label>{photo ? <p className={s.ready}>✓ {photo.name}</p> : null}</section>
       <section className={s.submit}><button type="submit" disabled={busy}>{busy ? 'Saving securely…' : 'Complete store capture'}</button><p>Clean captures proceed automatically to the Premier integration queue. Only exceptional issues are sent to human QA.</p>{message ? <p className={s.message} role="status">{message}</p> : null}</section>
     </> : null}
