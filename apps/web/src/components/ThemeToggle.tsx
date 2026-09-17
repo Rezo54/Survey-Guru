@@ -28,8 +28,6 @@ export default function ThemeToggle() {
     window.dispatchEvent(new CustomEvent('survey-guru-theme', { detail: next }));
   }
 
-  return <div className={styles.toggle} role="group" aria-label="Colour theme">
-    <button type="button" aria-pressed={theme === 'light'} onClick={() => choose('light')}>☀ Light</button>
-    <button type="button" aria-pressed={theme === 'dark'} onClick={() => choose('dark')}>☾ Dark</button>
-  </div>;
+  const next = theme === 'dark' ? 'light' : 'dark';
+  return <button className={styles.toggle} type="button" aria-label={`Use ${next} appearance`} title={`Use ${next} appearance`} onClick={() => choose(next)}>{theme === 'dark' ? '☀' : '☾'}</button>;
 }
