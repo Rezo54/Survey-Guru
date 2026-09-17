@@ -29,10 +29,11 @@ type CoverageResponse = {
   projectBoundary?: Coordinate[];
   streetSegments: CoverageSegment[];
   capturedStores?: CapturedStore[];
+  storeInsights?: { totalCaptures: number; correctCaptures: number; capturedToday: number; densityPerSquareKm: number | null; statusCounts: Record<string, number>; brandPerformance: Array<{ brand: string; stores: number }>; capturers: Array<{ userId: string; name: string; captures: number }> };
   summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number };
   message?: string;
 };
-type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturedAt?: string; photoCount: number; exportState?: string };
+type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -55,7 +56,7 @@ function coverageSignature(coverage: CoverageResponse): string {
     }).join('|') ?? '';
     return `${segment.projectStreetSegmentId}:${segment.coverageState}:${segment.coverageColour}:${slices}`;
   }).join(';');
-  const stores = (coverage.capturedStores ?? []).map((store) => `${store.captureId}:${store.status}:${store.photoCount}:${store.location.latitude}:${store.location.longitude}`).join(';');
+  const stores = (coverage.capturedStores ?? []).map((store) => `${store.captureId}:${store.status}:${store.photoCount}:${store.capturedToday}:${store.capturerUserId}:${store.location.latitude}:${store.location.longitude}`).join(';');
   return `${streets}::${stores}`;
 }
 export const darkRoadmapStyle = [
@@ -120,6 +121,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const [error, setError] = useState<string | null>(null);
   const [coverageVisible, setCoverageVisible] = useState(true);
   const [storesVisible, setStoresVisible] = useState(true);
+  const [selectedCapturer, setSelectedCapturer] = useState('ALL');
   const [visibleColours, setVisibleColours] = useState<Readonly<Record<CoverageColour, boolean>>>({ red: true, green: true, amber: true });
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -245,16 +247,16 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           roadLinesRef.current.push({ line: roadLine, colour: slice.colour });
         }
       }
-      for (const store of coverage.capturedStores ?? []) {
+      for (const store of (coverage.capturedStores ?? []).filter((item) => selectedCapturer === 'ALL' || item.capturerUserId === selectedCapturer)) {
         if (!Number.isFinite(store.location?.latitude) || !Number.isFinite(store.location?.longitude)) continue;
         const position = { lat: store.location.latitude, lng: store.location.longitude };
         bounds.extend(position);
-        const marker = new maps.Marker({ map, position, title: store.name, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: 7 } });
+        const marker = new maps.Marker({ map, position, title: `${store.name} · ${store.capturerName ?? 'Capturer unavailable'}`, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: store.capturedToday ? '#f3b333' : '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: store.capturedToday ? 8 : 7 } });
         const infoWindow = new maps.InfoWindow();
         marker.addListener('click', () => {
           const panel = document.createElement('div'); panel.className = storeStyles.storePopup ?? '';
           const heading = document.createElement('strong'); heading.textContent = store.name;
-          const meta = document.createElement('span'); meta.textContent = `${store.status === 'SYNCED' ? 'Synced' : 'Ready for export'} · ${store.capturedAt ? new Date(store.capturedAt).toLocaleString() : 'Captured'}`;
+          const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${store.status === 'SYNCED' ? 'Synced' : 'Ready for export'} · ${store.capturedAt ? new Date(store.capturedAt).toLocaleString('en-ZA') : 'Captured'}`;
           panel.append(heading, meta);
           const pricing = Array.isArray(store.answers?.pricing) ? store.answers.pricing as Array<{ product?: unknown; price?: unknown }> : [];
           for (const item of pricing) { const detail = document.createElement('span'); detail.textContent = `${String(item.product ?? 'Product')} · ${typeof item.price === 'number' ? item.price.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' }) : 'Price unavailable'}`; panel.append(detail); }
@@ -290,7 +292,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, coverage, variant]);
+  }, [apiKey, coverage, selectedCapturer, variant]);
 
   useEffect(() => () => {
     zoomListenerRef.current?.remove?.();
@@ -313,6 +315,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     <button type="button" className={effectiveCoverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={effectiveCoverageVisible}>Coverage {effectiveCoverageVisible ? 'on' : 'off'}</button>
     {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={effectiveCoverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={effectiveCoverageVisible && visibleColours[colour]} disabled={!effectiveCoverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
     <button type="button" className={storesVisible ? styles.controlActive : ''} onClick={() => setStoresVisible((current) => !current)} aria-pressed={storesVisible}><i className={storeStyles.storeDot}/>Captured stores</button>
+    <select className={storeStyles.capturerFilter} aria-label="Filter captured stores by capturer" value={selectedCapturer} onChange={(event) => setSelectedCapturer(event.target.value)}><option value="ALL">All capturers</option>{coverage?.storeInsights?.capturers.map((capturer) => <option key={capturer.userId} value={capturer.userId}>{capturer.name} ({capturer.captures})</option>)}</select>
     {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
   </div> : null;
 
@@ -322,7 +325,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       <div ref={hostRef} className={styles.canvas} />
       {controlsHost && coverageControls ? createPortal(coverageControls, controlsHost) : null}
     </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
-    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><span><i className={storeStyles.storeDot}/>Captured store</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
+    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><span><i className={storeStyles.todayDot}/>Correct today</span><span><i className={storeStyles.storeDot}/>Correct earlier</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
+    {variant !== 'field' && coverage?.storeInsights ? <div className={storeStyles.insights}><span><b>{coverage.storeInsights.correctCaptures}</b> correct stores</span><span><b>{coverage.storeInsights.capturedToday}</b> today</span><span><b>{coverage.storeInsights.densityPerSquareKm ?? '—'}</b> stores/km²</span><span><b>{coverage.storeInsights.statusCounts['SUBMITTED'] ?? 0}</b> in review</span><span><b>{coverage.storeInsights.statusCounts['REJECTED'] ?? 0}</b> rejected</span>{coverage.storeInsights.brandPerformance.slice(0, 3).map((item) => <span key={item.brand}><b>{item.stores}</b> {item.brand}</span>)}</div> : null}
     {error ? <p className={styles.error}>{error}</p> : null}
   </section>;
 }
