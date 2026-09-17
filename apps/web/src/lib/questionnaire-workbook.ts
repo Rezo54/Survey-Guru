@@ -1,5 +1,5 @@
 export type QuestionnaireImport = {
-  questions: Array<{ id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: string[] }>;
+  questions: Array<{ id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: string[]; additionalRow: boolean }>;
   products: Array<{ brand: string; product: string; active: boolean; displayOrder: number }>;
 };
 
@@ -92,7 +92,8 @@ export async function readQuestionnaireWorkbook(file: File): Promise<Questionnai
       : rawType.includes('number') || rawType.includes('price') || rawType.includes('volume')
         ? 'number'
         : 'text';
-    return [{ id: uniqueFieldId(idCandidate, usedIds), label, type, required: !['no', 'false', '0'].includes((row.required ?? '').toLowerCase()), options }];
+    const additionalRowValue = (row.additionalrow ?? '').trim().toLowerCase();
+    return [{ id: uniqueFieldId(idCandidate, usedIds), label, type, required: !['no', 'false', '0'].includes((row.required ?? '').toLowerCase()), options, additionalRow: additionalRowValue.startsWith('yes') || additionalRowValue.includes('auto add') }];
   });
   const products = productRows.map((row, index) => ({ brand: row.brand ?? '', product: row.product ?? '', active: !['no', 'false', '0'].includes((row.active ?? '').toLowerCase()), displayOrder: Number(row.displayorder) || index + 1 })).filter((item) => item.active && item.brand && item.product);
   if (!questions.length && !products.length) throw new Error('The workbook needs Questionnaire or Products rows. Do not rename the template sheets or headers.');
