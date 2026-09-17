@@ -20,7 +20,7 @@ export default function ProjectMapPage() {
         <section className={styles.main}>
             <header className={styles.top}><div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div><div className={styles.topRight}><button className={styles.location}>⌖ &nbsp; Soweto⌄</button><span className={styles.bell}>♧</span><span className={styles.user}>B</span></div></header>
             <div className={styles.content}>
-                <section className={styles.heading}><div><h1>Project Map & Coverage</h1><p>Know what was searched, what is verified and what remains unknown.</p></div><div className={styles.projectSelect}><span>Soweto Retail Universe</span><b>Active</b></div></section>
+                <section className={styles.heading}><div><h1>Project Map & Coverage</h1><p>Know what was searched, what is verified and what remains unknown.</p><Link href="/projects/new">＋ Define a new test capture area</Link></div><div className={styles.projectSelect}><span>Soweto Retail Universe</span><b>Active</b></div></section>
                 <section className={styles.mapPanel}><ProjectGoogleMap classes={{ mapToolbar: styles.mapToolbar, mapTypes: styles.mapTypes, selected: styles.selected, mapTools: styles.mapTools }} /></section>
                 <section className={styles.metrics}>{metrics.map(([icon,value,label]) => <article key={label}><i>{icon}</i><div><strong>{value}</strong><span>{label}</span></div></article>)}</section>
 
