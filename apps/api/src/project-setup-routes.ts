@@ -14,7 +14,61 @@ export class ProjectSetupRequestError extends Error {
   statusCode = 400;
 }
 
+async function fetchPolygonRoads(boundary: ReturnType<typeof parseOptionalBoundary>): Promise<OverpassResponse> {
+  const configured = (process.env.OVERPASS_API_URLS ?? process.env.OVERPASS_API_URL ?? '')
+    .split(',').map((value) => value.trim()).filter(Boolean);
+  const endpoints = configured.length ? configured : [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ];
+  const invalid = endpoints.find((endpoint) => !endpoint.startsWith('https://'));
+  if (invalid) throw new ProjectSetupRequestError('Every configured road provider must use HTTPS.');
+  const requestBody = new URLSearchParams({ data: buildOverpassRoadQuery(boundary) });
+  const failures: string[] = [];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8', 'user-agent': 'Survey-Guru-development-road-import/1.0' },
+        body: requestBody, signal: AbortSignal.timeout(90_000),
+      });
+      if (response.ok) return await response.json() as OverpassResponse;
+      failures.push(`${new URL(endpoint).host}: HTTP ${response.status}`);
+      if (response.status < 500 && response.status !== 429) break;
+    } catch (error) {
+      failures.push(`${new URL(endpoint).host}: ${error instanceof Error && error.name === 'TimeoutError' ? 'timed out' : 'unavailable'}`);
+    }
+  }
+  throw new ProjectSetupRequestError(`Road providers are temporarily busy (${failures.join('; ')}). Please use Re-import roads inside boundary to retry.`);
+}
+
 export function registerProjectSetupRoutes(app: FastifyInstance): void {
+  app.post<{ Params: { projectId: string } }>('/api/v1/admin/projects/:projectId/archive', async (request) => {
+    const identity = await verifyRequestIdentity(request);
+    const authority = await resolveAuthority(identity);
+    requirePermission(authority, 'workspace.admin');
+    const { firestore } = getFirebaseAdminServices();
+    const project = await firestore.collection('projects').doc(request.params.projectId).get();
+    if (!project.exists || project.get('workspaceId') !== authority.workspaceId || project.get('status') !== 'active') throw new ProjectSetupRequestError('Select an active project in your workspace.');
+    const [assignments, sessions, memberships] = await Promise.all([
+      firestore.collection('assignments').where('projectId', '==', project.id).get(),
+      firestore.collection('searchSessions').where('projectId', '==', project.id).get(),
+      firestore.collection('projectMemberships').where('projectId', '==', project.id).get(),
+    ]);
+    const archivedAt = new Date().toISOString();
+    const writes = [
+      { ref: project.ref, data: { status: 'archived', archivedAt, archivedBy: identity.uid } },
+      ...assignments.docs.map((document) => ({ ref: document.ref, data: { status: 'inactive', archivedAt } })),
+      ...sessions.docs.map((document) => ({ ref: document.ref, data: { state: 'CLOSED', archivedAt, updatedAt: archivedAt } })),
+      ...memberships.docs.map((document) => ({ ref: document.ref, data: { status: 'inactive', archivedAt } })),
+    ];
+    for (let start = 0; start < writes.length; start += 400) {
+      const batch = firestore.batch();
+      for (const write of writes.slice(start, start + 400)) batch.set(write.ref, write.data, { merge: true });
+      await batch.commit();
+    }
+    return { project: { id: project.id, name: project.get('name'), status: 'archived' }, retainedEvidence: true, message: 'Project archived. Captures, photos, roads and audit history were retained.' };
+  });
+
   app.post<{ Params: { projectId: string } }>('/api/v1/dev/projects/:projectId/import-streets', async (request) => {
     if ((process.env.SURVEY_GURU_ENV ?? 'local') !== 'dev') throw new ProjectSetupRequestError('The test street importer is available only in development.');
     const identity = await verifyRequestIdentity(request);
@@ -25,12 +79,8 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     if (!project.exists || project.get('workspaceId') !== authority.workspaceId || project.get('environment') !== 'dev') throw new ProjectSetupRequestError('Select a development project in your workspace.');
     const boundary = parseOptionalBoundary(project.get('boundary'));
     if (boundary.length < 3) throw new ProjectSetupRequestError('The project has no valid published polygon.');
-    const endpoint = process.env.OVERPASS_API_URL ?? 'https://overpass-api.de/api/interpreter';
     const maximumSegments = Number(process.env.SURVEY_GURU_MAX_DEV_STREET_SEGMENTS ?? 10_000);
-    if (!endpoint.startsWith('https://')) throw new ProjectSetupRequestError('The configured road provider must use HTTPS.');
-    const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8', 'user-agent': 'Survey-Guru-development-road-import/1.0' }, body: new URLSearchParams({ data: buildOverpassRoadQuery(boundary) }), signal: AbortSignal.timeout(120_000) });
-    if (!response.ok) throw new ProjectSetupRequestError(`The road provider returned HTTP ${response.status}.`);
-    const segments = projectStreetSegmentsFromOverpass({ response: await response.json() as OverpassResponse, workspaceId: authority.workspaceId, projectId: project.id, boundary });
+    const segments = projectStreetSegmentsFromOverpass({ response: await fetchPolygonRoads(boundary), workspaceId: authority.workspaceId, projectId: project.id, boundary });
     if (segments.length === 0) throw new ProjectSetupRequestError('No eligible streets were found inside this polygon.');
     if (segments.length > maximumSegments) throw new ProjectSetupRequestError(`The polygon contains ${segments.length} street segments, above the ${maximumSegments} development limit. Draw a smaller area or raise SURVEY_GURU_MAX_DEV_STREET_SEGMENTS.`);
     const importedAt = new Date().toISOString();
