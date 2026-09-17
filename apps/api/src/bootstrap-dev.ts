@@ -28,6 +28,15 @@ batch.set(firestore.collection('projects').doc(projectId), {
   status: 'active',
   environment: 'dev',
   coveragePolicyId,
+  storeCaptureRequiredQuestionIds: ['ownerName', 'stockedBrands', 'pricing'],
+  storeQaPolicy: {
+    mode: 'HYBRID',
+    autoVerifyEnabled: true,
+    manualApprovalBeforeExport: true,
+    maximumGpsAccuracyMetres: 30,
+    minimumPhotoCount: 1,
+    policyVersion: 'store-qa-dev-v1',
+  },
   boundary: [
     { latitude: -26.201, longitude: 27.824 },
     { latitude: -26.193, longitude: 27.876 },

@@ -4,7 +4,9 @@ import {
   canPublishStoreCaptureToThirdParty,
   canTransitionStoreCapture,
   classifyStoreDataRights,
+  evaluateAutomatedStoreQa,
   findStoreIdentityCandidates,
+  resolveStoreQaDecision,
   validateStoreCaptureSubmission,
   type StoreCaptureDraft,
   type StoreIdentity,
@@ -60,6 +62,55 @@ test('QA state machine prevents draft or unverified third-party publication', ()
   assert.equal(canPublishStoreCaptureToThirdParty('VERIFIED'), false);
   assert.equal(canPublishStoreCaptureToThirdParty('READY_FOR_EXPORT'), true);
   assert.equal(canPublishStoreCaptureToThirdParty('SYNCED'), true);
+});
+
+test('QA decisions are explicit, fast when authorised and preserve each transition', () => {
+  assert.deepEqual(resolveStoreQaDecision('SUBMITTED', 'VERIFY'), {
+    finalStatus: 'VERIFIED', transitions: [{ from: 'SUBMITTED', to: 'VERIFIED' }], requiresReason: false,
+  });
+  assert.deepEqual(resolveStoreQaDecision('SUBMITTED', 'VERIFY_AND_READY'), {
+    finalStatus: 'READY_FOR_EXPORT',
+    transitions: [{ from: 'SUBMITTED', to: 'VERIFIED' }, { from: 'VERIFIED', to: 'READY_FOR_EXPORT' }],
+    requiresReason: false,
+  });
+  assert.equal(canPublishStoreCaptureToThirdParty(resolveStoreQaDecision('SUBMITTED', 'VERIFY').finalStatus), false);
+  assert.equal(canPublishStoreCaptureToThirdParty(resolveStoreQaDecision('SUBMITTED', 'VERIFY_AND_READY').finalStatus), true);
+});
+
+test('return and reject decisions require a reason and invalid shortcuts fail closed', () => {
+  assert.equal(resolveStoreQaDecision('SUBMITTED', 'RETURN_FOR_CORRECTION').requiresReason, true);
+  assert.equal(resolveStoreQaDecision('NEEDS_REVIEW', 'REJECT').requiresReason, true);
+  assert.throws(() => resolveStoreQaDecision('DRAFT', 'VERIFY_AND_READY'), /not permitted/);
+  assert.throws(() => resolveStoreQaDecision('SUBMITTED', 'MARK_READY_FOR_EXPORT'), /not permitted/);
+  assert.throws(() => resolveStoreQaDecision('SYNCED', 'RETURN_FOR_CORRECTION'), /not permitted/);
+});
+
+test('automated QA verifies only complete, integrity-checked, accurate and identity-resolved captures', () => {
+  const assessment = evaluateAutomatedStoreQa({
+    draft: draft(),
+    requiredQuestionIds: ['ownerName', 'stockedBrands', 'pricing'],
+    storedPhotoIntegrityVerified: true,
+    identityCandidates: [],
+    policy: { autoVerifyEnabled: true, manualApprovalBeforeExport: true, maximumGpsAccuracyMetres: 30, minimumPhotoCount: 1 },
+  });
+  assert.equal(assessment.outcome, 'AUTO_VERIFIED');
+  assert.equal(assessment.recommendedStatus, 'VERIFIED');
+  assert.equal(assessment.manualApprovalBeforeExport, true);
+  assert.equal(canPublishStoreCaptureToThirdParty(assessment.recommendedStatus), false);
+});
+
+test('automated QA sends weak GPS or unresolved identity to human review', () => {
+  const assessment = evaluateAutomatedStoreQa({
+    draft: draft({ location: { latitude: -26.2, longitude: 27.8, accuracyMetres: 75 } }),
+    requiredQuestionIds: ['ownerName', 'stockedBrands', 'pricing'],
+    storedPhotoIntegrityVerified: true,
+    identityCandidates: [{ storeId: 'store-legacy-1', canonicalName: 'Zama Tuck Shop', distanceMetres: 8, nameSimilarity: 0, reason: 'SAME_LOCATION_NAME_CHANGED' }],
+    policy: { autoVerifyEnabled: true, manualApprovalBeforeExport: true, maximumGpsAccuracyMetres: 30, minimumPhotoCount: 1 },
+  });
+  assert.equal(assessment.outcome, 'MANUAL_REVIEW');
+  assert.equal(assessment.recommendedStatus, 'SUBMITTED');
+  assert.ok(assessment.checks.some((check) => check.key === 'GPS_ACCURACY' && !check.passed));
+  assert.ok(assessment.checks.some((check) => check.key === 'IDENTITY' && !check.passed));
 });
 
 test('historical Taskraft rights require an immutable snapshot and licence schedule', () => {

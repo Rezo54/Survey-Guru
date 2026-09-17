@@ -1,5 +1,26 @@
 export type StoreCaptureStatus = 'DRAFT' | 'SUBMITTED' | 'NEEDS_REVIEW' | 'VERIFIED' | 'REJECTED' | 'READY_FOR_EXPORT' | 'SYNCED';
 export type StoreDataRights = 'TASKRAFT_LICENSED_LEGACY' | 'TES_NEW_CAPTURE';
+export type StoreQaDecision = 'VERIFY' | 'VERIFY_AND_READY' | 'RETURN_FOR_CORRECTION' | 'REJECT' | 'MARK_READY_FOR_EXPORT';
+
+export type StoreQaResolution = Readonly<{
+  finalStatus: StoreCaptureStatus;
+  transitions: readonly Readonly<{ from: StoreCaptureStatus; to: StoreCaptureStatus }>[];
+  requiresReason: boolean;
+}>;
+
+export type StoreAutomatedQaPolicy = Readonly<{
+  autoVerifyEnabled: boolean;
+  manualApprovalBeforeExport: boolean;
+  maximumGpsAccuracyMetres: number;
+  minimumPhotoCount: number;
+}>;
+
+export type StoreAutomatedQaAssessment = Readonly<{
+  outcome: 'AUTO_VERIFIED' | 'MANUAL_REVIEW';
+  recommendedStatus: 'VERIFIED' | 'SUBMITTED';
+  manualApprovalBeforeExport: boolean;
+  checks: readonly Readonly<{ key: 'QUESTIONNAIRE' | 'PHOTO_INTEGRITY' | 'GPS_ACCURACY' | 'IDENTITY'; passed: boolean; message: string }>[];
+}>;
 
 export type StoreLocation = Readonly<{ latitude: number; longitude: number; accuracyMetres?: number }>;
 export type StoreIdentity = Readonly<{
@@ -126,6 +147,72 @@ export function canTransitionStoreCapture(from: StoreCaptureStatus, to: StoreCap
 
 export function canPublishStoreCaptureToThirdParty(status: StoreCaptureStatus): boolean {
   return status === 'READY_FOR_EXPORT' || status === 'SYNCED';
+}
+
+export function resolveStoreQaDecision(from: StoreCaptureStatus, decision: StoreQaDecision): StoreQaResolution {
+  if (decision === 'VERIFY' && (from === 'SUBMITTED' || from === 'NEEDS_REVIEW')) {
+    return { finalStatus: 'VERIFIED', transitions: [{ from, to: 'VERIFIED' }], requiresReason: false };
+  }
+  if (decision === 'VERIFY_AND_READY' && (from === 'SUBMITTED' || from === 'NEEDS_REVIEW')) {
+    return {
+      finalStatus: 'READY_FOR_EXPORT',
+      transitions: [{ from, to: 'VERIFIED' }, { from: 'VERIFIED', to: 'READY_FOR_EXPORT' }],
+      requiresReason: false,
+    };
+  }
+  if (decision === 'RETURN_FOR_CORRECTION' && (from === 'SUBMITTED' || from === 'VERIFIED' || from === 'READY_FOR_EXPORT')) {
+    return { finalStatus: 'NEEDS_REVIEW', transitions: [{ from, to: 'NEEDS_REVIEW' }], requiresReason: true };
+  }
+  if (decision === 'REJECT' && (from === 'SUBMITTED' || from === 'NEEDS_REVIEW')) {
+    return { finalStatus: 'REJECTED', transitions: [{ from, to: 'REJECTED' }], requiresReason: true };
+  }
+  if (decision === 'MARK_READY_FOR_EXPORT' && from === 'VERIFIED') {
+    return { finalStatus: 'READY_FOR_EXPORT', transitions: [{ from, to: 'READY_FOR_EXPORT' }], requiresReason: false };
+  }
+  throw new Error(`QA decision ${decision} is not permitted from ${from}.`);
+}
+
+export function evaluateAutomatedStoreQa(input: Readonly<{
+  draft: StoreCaptureDraft;
+  requiredQuestionIds: readonly string[];
+  storedPhotoIntegrityVerified: boolean;
+  identityCandidates: readonly StoreMatchCandidate[];
+  policy: StoreAutomatedQaPolicy;
+}>): StoreAutomatedQaAssessment {
+  const questionnaireIssues = validateStoreCaptureSubmission(input.draft, input.requiredQuestionIds)
+    .filter((issue) => issue.startsWith('Question ') || issue.includes('Store name'));
+  const identityResolved = input.identityCandidates.length === 0
+    || (typeof input.draft.selectedExistingStoreId === 'string'
+      && input.identityCandidates.some((candidate) => candidate.storeId === input.draft.selectedExistingStoreId));
+  const checks: StoreAutomatedQaAssessment['checks'] = [
+    { key: 'QUESTIONNAIRE', passed: questionnaireIssues.length === 0, message: questionnaireIssues[0] ?? 'Required questionnaire answers are complete.' },
+    {
+      key: 'PHOTO_INTEGRITY',
+      passed: input.storedPhotoIntegrityVerified && input.draft.photos.length >= input.policy.minimumPhotoCount,
+      message: input.storedPhotoIntegrityVerified && input.draft.photos.length >= input.policy.minimumPhotoCount
+        ? 'Required photo evidence passed server-side integrity verification.'
+        : 'Photo evidence needs human review.',
+    },
+    {
+      key: 'GPS_ACCURACY',
+      passed: typeof input.draft.location.accuracyMetres === 'number' && input.draft.location.accuracyMetres <= input.policy.maximumGpsAccuracyMetres,
+      message: typeof input.draft.location.accuracyMetres === 'number' && input.draft.location.accuracyMetres <= input.policy.maximumGpsAccuracyMetres
+        ? `GPS accuracy is within ${input.policy.maximumGpsAccuracyMetres} metres.`
+        : `GPS accuracy is weaker than the ${input.policy.maximumGpsAccuracyMetres} metre automated threshold.`,
+    },
+    {
+      key: 'IDENTITY',
+      passed: identityResolved,
+      message: identityResolved ? 'No unresolved nearby-store identity risk remains.' : 'A nearby store or changed trading name requires human identity review.',
+    },
+  ];
+  const autoVerified = input.policy.autoVerifyEnabled && checks.every((check) => check.passed);
+  return {
+    outcome: autoVerified ? 'AUTO_VERIFIED' : 'MANUAL_REVIEW',
+    recommendedStatus: autoVerified ? 'VERIFIED' : 'SUBMITTED',
+    manualApprovalBeforeExport: input.policy.manualApprovalBeforeExport,
+    checks,
+  };
 }
 
 export function classifyStoreDataRights(input: Readonly<{ sourceSnapshotId?: string; licenceScheduleId?: string }>): StoreDataRights {
