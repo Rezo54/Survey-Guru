@@ -21,6 +21,7 @@
 .candidates button { display: grid; gap: 4px; text-align: left; border: 1px solid #72571a; border-radius: 9px; padding: 11px; color: #f5ead5; background: #171e1d; cursor: pointer; }
 .candidates button span { color: #b9aaa0; font-size: .75rem; }
 .candidates .candidateSelected { border-color: #1dd8a7; background: #0b3c31; }
+.candidates .newStoreChoice { border-color: #2f7782; background: #0a2a34; }
 .ready { margin: 8px 0 0; color: #50e4b8; font-size: .78rem; }
 .submit button { width: 100%; border: 0; border-radius: 11px; padding: 14px; background: #1dd8a7; color: #05231b; font-weight: 900; font-size: 1rem; cursor: pointer; }
 .submit button:disabled, .secondary:disabled { opacity: .55; cursor: wait; }
