@@ -29,7 +29,19 @@ function candidateDescription(candidate: IdentityCandidate): string {
 }
 
 function parsePrice(value: FormDataEntryValue | null): number | null {
-  const normalised = String(value ?? '').trim().replace(/\s/g, '').replace(',', '.');
+  const raw = String(value ?? '').trim().replace(/^R\s*/i, '').replace(/\s/g, '');
+  if (!/^\d[\d.,]*$/.test(raw)) return null;
+  const lastComma = raw.lastIndexOf(',');
+  const lastDot = raw.lastIndexOf('.');
+  const decimalSeparator = lastComma >= 0 && lastDot >= 0
+    ? lastComma > lastDot ? ',' : '.'
+    : lastComma >= 0
+      ? raw.length - lastComma - 1 <= 2 ? ',' : null
+      : lastDot >= 0 && raw.length - lastDot - 1 <= 2 ? '.' : null;
+  const decimalIndex = decimalSeparator ? raw.lastIndexOf(decimalSeparator) : -1;
+  const integerPart = (decimalIndex >= 0 ? raw.slice(0, decimalIndex) : raw).replace(/[.,]/g, '');
+  const fractionPart = decimalIndex >= 0 ? raw.slice(decimalIndex + 1) : '';
+  const normalised = fractionPart ? `${integerPart}.${fractionPart}` : integerPart;
   if (!/^\d+(?:\.\d{1,2})?$/.test(normalised)) return null;
   const price = Number(normalised);
   return Number.isFinite(price) && price >= 0 ? price : null;
@@ -43,6 +55,7 @@ export default function StoreCaptureForm() {
   const [location, setLocation] = useState<Location | null>(null);
   const [preflight, setPreflight] = useState<Preflight | null>(null);
   const [selectedExistingStoreId, setSelectedExistingStoreId] = useState<string | null>(null);
+  const [confirmedNewStore, setConfirmedNewStore] = useState(false);
   const [photo, setPhoto] = useState<File | null>(null);
   const [draft, setDraft] = useState<{ id: string; workspaceId: string; projectId: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,6 +79,7 @@ export default function StoreCaptureForm() {
     setBusy(true);
     setPreflight(null);
     setSelectedExistingStoreId(null);
+    setConfirmedNewStore(false);
     setMessage('Checking your current location…');
     navigator.geolocation.getCurrentPosition((position) => {
       setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy });
@@ -93,7 +107,7 @@ export default function StoreCaptureForm() {
     setMessage('Checking project area, GPS quality and existing stores…');
     try {
       const result = await request(`/api/v1/assignments/${encodeURIComponent(assignmentId)}/store-captures/preflight`, 'POST', {
-        observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}),
+        observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), ...(confirmedNewStore ? { confirmedNewStore: true } : {}),
       });
       if (!result.preflight) throw new Error('The eligibility check was not returned by the server.');
       setPreflight(result.preflight);
@@ -120,7 +134,7 @@ export default function StoreCaptureForm() {
       pricing: [{ product: String(form.get('product') ?? '').trim(), price }],
       monthlyVolume: Number(form.get('monthlyVolume')),
     };
-    const baseBody = { observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), answers, photos: [] };
+    const baseBody = { observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), ...(confirmedNewStore ? { confirmedNewStore: true } : {}), answers, photos: [] };
     setBusy(true);
     setMessage('Saving the eligible capture…');
     try {
@@ -159,16 +173,16 @@ export default function StoreCaptureForm() {
   return <form className={s.form} onSubmit={submit}>
     <section className={s.card}>
       <p className={s.eyebrow}>1 · Confirm this store can be captured</p>
-      <label>Store name<input name="storeName" required autoComplete="organization" placeholder="Name shown at the store" value={storeName} onChange={(event) => { setStoreName(event.target.value); setPreflight(null); setSelectedExistingStoreId(null); }} /></label>
+      <label>Store name<input name="storeName" required autoComplete="organization" placeholder="Name shown at the store" value={storeName} onChange={(event) => { setStoreName(event.target.value); setPreflight(null); setSelectedExistingStoreId(null); setConfirmedNewStore(false); }} /></label>
       <button className={s.secondary} type="button" onClick={locate} disabled={busy}>{location ? 'Refresh store location' : 'Use current store location'}</button>
       {location ? <p className={s.ready}>Location found · ±{Math.round(location.accuracyMetres)} m</p> : null}
-      {preflight?.identityCandidates.length ? <div className={s.candidates}><strong>Possible existing store found</strong><p>Select it if this is the same physical outlet, even if its name changed.</p>{preflight.identityCandidates.map((candidate) => <button className={candidate.storeId === selectedExistingStoreId ? s.candidateSelected : ''} type="button" key={candidate.storeId} onClick={() => { setSelectedExistingStoreId(candidate.storeId); setMessage('Existing store selected. Check eligibility again to continue.'); }}><b>{candidate.canonicalName}</b><span>{candidateDescription(candidate)}</span></button>)}</div> : null}
-      <button className={s.preflight} type="button" onClick={() => void checkPreflight()} disabled={busy || !location || !storeName.trim()}>{busy ? 'Checking…' : selectedExistingStoreId ? 'Confirm selected store and continue' : 'Check location and existing stores'}</button>
+      {preflight?.identityCandidates.length ? <div className={s.candidates}><strong>Stores found nearby</strong><p>Select the same physical outlet even if its name changed, or confirm that the outlet you are standing at is separate.</p>{preflight.identityCandidates.map((candidate) => <button className={candidate.storeId === selectedExistingStoreId ? s.candidateSelected : ''} type="button" key={candidate.storeId} onClick={() => { setSelectedExistingStoreId(candidate.storeId); setConfirmedNewStore(false); setMessage('Existing store selected. Check eligibility again to continue.'); }}><b>{candidate.canonicalName}</b><span>{candidateDescription(candidate)}</span></button>)}<button className={confirmedNewStore ? s.candidateSelected : s.newStoreChoice} type="button" onClick={() => { setSelectedExistingStoreId(null); setConfirmedNewStore(true); setMessage('Separate new store confirmed. Check eligibility again to continue.'); }}><b>None of these — capture as a new store</b><span>Use this only when this is a different physical outlet.</span></button></div> : null}
+      <button className={s.preflight} type="button" onClick={() => void checkPreflight()} disabled={busy || !location || !storeName.trim()}>{busy ? 'Checking…' : selectedExistingStoreId ? 'Confirm selected store and continue' : confirmedNewStore ? 'Confirm separate new store and continue' : 'Check location and existing stores'}</button>
       {message ? <p className={preflight?.allowed ? s.ready : s.message} role="status">{message}</p> : null}
     </section>
 
     {preflight?.allowed ? <>
-      <section className={s.card}><p className={s.eyebrow}>2 · Store details</p><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="text" inputMode="decimal" autoComplete="off" pattern="[0-9]+([,.][0-9]{1,2})?" title="Use a comma or full stop with up to two decimal places" placeholder="18,50" /><span className={s.inputHint}>Comma or full stop accepted</span></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
+      <section className={s.card}><p className={s.eyebrow}>2 · Store details</p><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="text" inputMode="decimal" autoComplete="off" pattern="[Rr]?[ ]*[0-9][0-9 ,.]*([,.][0-9]{1,2})?" title="Examples: 18,50 · 2 000,45 · 2,000.45" placeholder="2 000,45" /><span className={s.inputHint}>Examples: 18,50 · 2 000,45 · 2,000.45</span></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
       <section className={s.card}><p className={s.eyebrow}>3 · Storefront evidence</p><label>Storefront photo<input required type="file" accept="image/*" capture="environment" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label>{photo ? <p className={s.ready}>✓ {photo.name}</p> : null}</section>
       <section className={s.submit}><button type="submit" disabled={busy}>{busy ? 'Saving securely…' : 'Complete store capture'}</button><p>Clean captures proceed automatically to the Premier integration queue. Only exceptional issues are sent to human QA.</p>{message ? <p className={s.message} role="status">{message}</p> : null}</section>
     </> : null}
