@@ -33,7 +33,7 @@ type CoverageResponse = {
   summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number };
   message?: string;
 };
-type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
+type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -113,11 +113,12 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const storeMarkersRef = useRef<any[]>([]);
   const photoUrlsRef = useRef<string[]>([]);
   const locationMarkerRef = useRef<any>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchControlRef = useRef<HTMLDivElement | null>(null);
   const placeListenerRef = useRef<any>(null);
   const zoomListenerRef = useRef<any>(null);
   const controlsAttachedRef = useRef(false);
   const coverageSignatureRef = useRef<string | null>(null);
+  const currentProjectRef = useRef(projectId);
   const preferencesLoadedRef = useRef(false);
   const fittedRef = useRef(false);
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
@@ -133,6 +134,14 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
   const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
   const effectiveCoverageVisible = coverageVisible && coverageLayerVisible;
+
+  useEffect(() => {
+    currentProjectRef.current = projectId;
+    coverageSignatureRef.current = null;
+    fittedRef.current = false;
+    setCoverage(null);
+    setError(null);
+  }, [projectId]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -166,6 +175,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
       const body = JSON.parse(responseText) as CoverageResponse;
       if (!response.ok || !Array.isArray(body.streetSegments)) throw new Error(body.message ?? 'Shared street coverage is unavailable.');
+      if (currentProjectRef.current !== projectId) return;
       const signature = coverageSignature(body);
       if (signature !== coverageSignatureRef.current) {
         coverageSignatureRef.current = signature;
@@ -173,6 +183,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
       setError(null);
     } catch (cause) {
+      if (currentProjectRef.current !== projectId) return;
       setError(cause instanceof Error ? cause.message : 'Shared street coverage is unavailable.');
     }
   }, [projectId]);
@@ -253,8 +264,15 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
       mapRef.current = map;
-      if (!placeListenerRef.current && searchInputRef.current && maps.places?.Autocomplete) {
-        const autocomplete = new maps.places.Autocomplete(searchInputRef.current, { fields: ['geometry', 'name', 'formatted_address'] });
+      if (!placeListenerRef.current && maps.places?.Autocomplete) {
+        const control = document.createElement('div');
+        control.className = styles.googlePlaceSearch ?? '';
+        const icon = document.createElement('span'); icon.textContent = '⌕';
+        const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search Google Maps'; input.setAttribute('aria-label', 'Search Google Maps for a place or street');
+        control.append(icon, input);
+        map.controls[maps.ControlPosition.TOP_LEFT].push(control);
+        searchControlRef.current = control;
+        const autocomplete = new maps.places.Autocomplete(input, { fields: ['geometry', 'name', 'formatted_address'] });
         autocomplete.bindTo('bounds', map);
         placeListenerRef.current = autocomplete.addListener('place_changed', () => {
           const place = autocomplete.getPlace();
@@ -310,7 +328,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           const panel = document.createElement('div'); panel.className = storeStyles.storePopup ?? '';
           const heading = document.createElement('strong'); heading.textContent = store.name;
           const localTime = store.capturedAt ? new Date(store.capturedAt).toLocaleString('en-ZA', { timeZone: store.projectTimeZone ?? 'Africa/Johannesburg', dateStyle: 'medium', timeStyle: 'medium' }) : 'Captured';
-          const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${store.status === 'SYNCED' ? 'Synced' : 'Ready for export'} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
+          const integrationState = store.status === 'SYNCED' ? 'Synced' : store.status === 'READY_FOR_EXPORT' ? 'Ready for export' : 'Verified';
+          const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${integrationState} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
           panel.append(heading, meta);
           const brandProducts = Array.isArray(store.answers?.brandProducts) ? store.answers.brandProducts as Array<Record<string, unknown>> : [];
           if (brandProducts.length) for (const item of brandProducts) {
@@ -357,12 +376,14 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, colourTheme, coverage, mapId, selectedCapturer, variant]);
+  }, [apiKey, colourTheme, coverage, mapId, projectId, selectedCapturer, variant]);
 
   useEffect(() => () => {
     zoomListenerRef.current?.remove?.();
     placeListenerRef.current?.remove?.();
     placeListenerRef.current = null;
+    searchControlRef.current?.remove();
+    searchControlRef.current = null;
     zoomListenerRef.current = null;
     for (const overlay of overlaysRef.current) { if (typeof overlay.setMap === 'function') overlay.setMap(null); else overlay.map = null; }
     overlaysRef.current = [];
@@ -389,7 +410,6 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   return <section className={`${styles.frame} ${expanded ? styles.expanded : ''}`} data-variant={variant} data-header={showHeader ? 'true' : 'false'} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
     {apiKey ? <>
-      <label className={styles.mapSearch}><span>⌕</span><input ref={searchInputRef} type="search" placeholder="Search place, street or address" aria-label="Search Google Maps for a place or street" /></label>
       <div ref={hostRef} className={styles.canvas} />
       {controlsHost && coverageControls ? createPortal(coverageControls, controlsHost) : null}
       {variant === 'field' ? <div className={styles.fieldMapActions} aria-label="Field map actions">
