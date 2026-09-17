@@ -52,6 +52,10 @@ app.get('/api/v1/assignments/today', async (request) => {
   requirePermission(authority, 'assignment.read');
   const { firestore } = getFirebaseAdminServices();
   const snapshot = await firestore.collection('assignments').where('workspaceId', '==', authority.workspaceId).where('assignedUserId', '==', identity.uid).where('status', '==', 'active').get();
+  const correctionsSnapshot = await firestore.collection('storeCaptures').where('workspaceId', '==', authority.workspaceId).where('capturerUserId', '==', identity.uid).get();
+  const corrections = correctionsSnapshot.docs
+    .filter((document) => document.get('status') === 'NEEDS_REVIEW' && authority.assignmentIds.has(String(document.get('assignmentId'))))
+    .map((document) => ({ id: document.id, assignmentId: document.get('assignmentId'), projectId: document.get('projectId'), observedName: document.get('observedName'), reason: document.get('correctionReason') ?? 'The store capture needs to be redone.', returnedAt: document.get('lastReviewedAt') ?? document.get('updatedAt') }));
   const authorised = snapshot.docs.filter((document) => authority.assignmentIds.has(document.id) && authority.projectIds.has(document.get('projectId')));
   const assignments = await Promise.all(authorised.map(async (document) => {
     const data = document.data() as Record<string, unknown>;
@@ -60,7 +64,7 @@ app.get('/api/v1/assignments/today', async (request) => {
     return { id: document.id, ...data, assignedAt: data['assignedAt'], createdAt: data['createdAt'], projectName: project?.exists ? project.get('name') : 'Assigned project' };
   }));
   assignments.sort((left, right) => String(right.assignedAt ?? right.createdAt ?? '').localeCompare(String(left.assignedAt ?? left.createdAt ?? '')));
-  return { assignments, authority: { permission: 'assignment.read', workspaceId: authority.workspaceId, identityScoped: true } };
+  return { assignments, corrections, authority: { permission: 'assignment.read', workspaceId: authority.workspaceId, identityScoped: true } };
 });
 
 app.post<{ Params: { assignmentId: string } }>('/api/v1/assignments/:assignmentId/search-session', async (request) => {
