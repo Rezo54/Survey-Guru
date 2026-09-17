@@ -8,6 +8,7 @@ import {
   evaluateStoreCapturePreflight,
   findStoreIdentityCandidates,
   resolveStoreQaDecision,
+  resolvePostSubmissionQaDecision,
   validateStoreCaptureSubmission,
   type StoreCaptureDraft,
   type StoreIdentity,
@@ -141,6 +142,13 @@ test('return and reject decisions require a reason and invalid shortcuts fail cl
   assert.throws(() => resolveStoreQaDecision('DRAFT', 'VERIFY_AND_READY'), /not permitted/);
   assert.throws(() => resolveStoreQaDecision('SUBMITTED', 'MARK_READY_FOR_EXPORT'), /not permitted/);
   assert.throws(() => resolveStoreQaDecision('SYNCED', 'RETURN_FOR_CORRECTION'), /not permitted/);
+});
+
+test('post-submission QA preserves export history and limits the reviewer to three decisions', () => {
+  assert.deepEqual(resolvePostSubmissionQaDecision('SYNCED', 'VERIFY'), { finalStatus: 'SYNCED', transitions: [], requiresReason: false });
+  assert.deepEqual(resolvePostSubmissionQaDecision('READY_FOR_EXPORT', 'RETURN_FOR_CORRECTION'), { finalStatus: 'NEEDS_REVIEW', transitions: [{ from: 'READY_FOR_EXPORT', to: 'NEEDS_REVIEW' }], requiresReason: true });
+  assert.deepEqual(resolvePostSubmissionQaDecision('SYNCED', 'REJECT'), { finalStatus: 'REJECTED', transitions: [{ from: 'SYNCED', to: 'REJECTED' }], requiresReason: true });
+  assert.throws(() => resolvePostSubmissionQaDecision('SYNCED', 'VERIFY_AND_READY'), /not permitted/);
 });
 
 test('automated QA verifies only complete, integrity-checked, accurate and identity-resolved captures', () => {
