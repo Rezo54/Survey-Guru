@@ -9,6 +9,13 @@
 .eyebrow { margin: 0 0 14px; color: #61d9ba; text-transform: uppercase; letter-spacing: .11em; font-size: .72rem; font-weight: 850; }
 .card label { display: grid; gap: 7px; margin-top: 13px; color: #bed2cc; font-weight: 750; font-size: .86rem; }
 .card input { width: 100%; box-sizing: border-box; border: 1px solid #315967; border-radius: 10px; padding: 12px; background: #061923; color: #f1faf7; font: inherit; }
+.card select { width: 100%; box-sizing: border-box; border: 1px solid #315967; border-radius: 10px; padding: 12px; background: #061923; color: #f1faf7; font: inherit; }
+.timeZone { color: #86aaa1; font-size: .76rem; }
+.brandRows { display: grid; gap: 12px; margin-top: 14px; }
+.brandRow { margin: 0; padding: 14px; border: 1px solid #285563; border-radius: 12px; background: #071c27; }
+.brandRow legend { padding: 0 7px; color: #65dfbf; font-weight: 850; }
+.priceGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.removeBrand { margin-top: 10px; border: 1px solid #934b48; border-radius: 8px; padding: 8px 10px; background: #3a1d20; color: #ffc1be; }
 .card input:focus { outline: 2px solid #1ed7a7; outline-offset: 1px; }
 .inputHint { color: #809f98; font-size: .68rem; font-weight: 500; }
 .grid { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
@@ -32,4 +39,4 @@
 .success h2 { margin: 0; }
 .success p { color: #a7c0ba; }
 .success a { color: #5ce2be; }
-@media (max-width: 560px) { .page { padding: 14px; } .header { display: block; } .back { display: inline-block; margin-top: 14px; } .grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .page { padding: 14px; } .header { display: block; } .back { display: inline-block; margin-top: 14px; } .grid, .priceGrid { grid-template-columns: 1fr; } }
