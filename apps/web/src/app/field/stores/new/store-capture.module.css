@@ -10,6 +10,7 @@
 .card label { display: grid; gap: 7px; margin-top: 13px; color: #bed2cc; font-weight: 750; font-size: .86rem; }
 .card input { width: 100%; box-sizing: border-box; border: 1px solid #315967; border-radius: 10px; padding: 12px; background: #061923; color: #f1faf7; font: inherit; }
 .card input:focus { outline: 2px solid #1ed7a7; outline-offset: 1px; }
+.inputHint { color: #809f98; font-size: .68rem; font-weight: 500; }
 .grid { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
 .hint { color: #809f98; font-size: .76rem; line-height: 1.5; margin: 12px 0 0; }
 .secondary { width: 100%; margin-top: 14px; border: 1px solid #35a98b; border-radius: 10px; padding: 12px; background: #0c342e; color: #ddf7ef; font-weight: 800; cursor: pointer; }
