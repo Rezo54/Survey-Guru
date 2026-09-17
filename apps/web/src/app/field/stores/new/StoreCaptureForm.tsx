@@ -12,7 +12,7 @@ type Location = { latitude: number; longitude: number; accuracyMetres: number };
 type IdentityCandidate = { storeId: string; canonicalName: string; distanceMetres: number; reason: 'SAME_LOCATION_NAME_MATCH' | 'SAME_LOCATION_NAME_CHANGED' | 'NEARBY_POSSIBLE_DUPLICATE' };
 type Preflight = { allowed: boolean; reasons: { key: 'GPS_ACCURACY' | 'PROJECT_BOUNDARY' | 'IDENTITY'; message: string }[]; identityCandidates: IdentityCandidate[] };
 type ApiResponse = {
-  storeCapture?: { id: string; workspaceId: string; projectId: string; status?: 'DRAFT' | 'SUBMITTED' | 'VERIFIED' | 'READY_FOR_EXPORT'; automatedQa?: { outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW' } };
+  storeCapture?: { id: string; workspaceId: string; projectId: string; observedName?: string; correctionReason?: string; status?: 'DRAFT' | 'SUBMITTED' | 'NEEDS_REVIEW' | 'VERIFIED' | 'READY_FOR_EXPORT'; automatedQa?: { outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW' } };
   preflight?: Preflight;
   message?: string;
 };
@@ -51,6 +51,7 @@ export default function StoreCaptureForm() {
   const searchParams = useSearchParams();
   const assignmentId = searchParams.get('assignment');
   const sessionId = searchParams.get('session');
+  const returnedCaptureId = searchParams.get('capture');
   const [storeName, setStoreName] = useState('');
   const [location, setLocation] = useState<Location | null>(null);
   const [preflight, setPreflight] = useState<Preflight | null>(null);
@@ -73,6 +74,26 @@ export default function StoreCaptureForm() {
     }
     locate();
   }, []);
+
+  useEffect(() => {
+    if (!returnedCaptureId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getFieldToken();
+        const response = await fetch(`${fieldApiOrigin()}/api/v1/store-captures/${encodeURIComponent(returnedCaptureId)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        const result = await response.json() as ApiResponse;
+        if (!response.ok || !result.storeCapture || result.storeCapture.status !== 'NEEDS_REVIEW') throw new Error(result.message ?? 'The returned capture is no longer available for correction.');
+        if (!cancelled) {
+          setDraft({ id: result.storeCapture.id, workspaceId: result.storeCapture.workspaceId, projectId: result.storeCapture.projectId });
+          setStoreName(result.storeCapture.observedName ?? '');
+          setPhoto(null);
+          setMessage(`Returned by QA: ${result.storeCapture.correctionReason ?? 'Replace the evidence and submit the store again.'}`);
+        }
+      } catch (error) { if (!cancelled) setMessage(error instanceof Error ? error.message : 'The returned capture could not be opened.'); }
+    })();
+    return () => { cancelled = true; };
+  }, [returnedCaptureId]);
 
   function locate() {
     if (!navigator.geolocation) return setMessage('Location is not available in this browser.');
@@ -172,7 +193,7 @@ export default function StoreCaptureForm() {
 
   return <form className={s.form} onSubmit={submit}>
     <section className={s.card}>
-      <p className={s.eyebrow}>1 · Confirm this store can be captured</p>
+      <p className={s.eyebrow}>{returnedCaptureId ? '1 · Redo the store returned by QA' : '1 · Confirm this store can be captured'}</p>
       <label>Store name<input name="storeName" required autoComplete="organization" placeholder="Name shown at the store" value={storeName} onChange={(event) => { setStoreName(event.target.value); setPreflight(null); setSelectedExistingStoreId(null); setConfirmedNewStore(false); }} /></label>
       <button className={s.secondary} type="button" onClick={locate} disabled={busy}>{location ? 'Refresh store location' : 'Use current store location'}</button>
       {location ? <p className={s.ready}>Location found · ±{Math.round(location.accuracyMetres)} m</p> : null}
