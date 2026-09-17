@@ -156,7 +156,8 @@ export default function NewProjectPage() {
       const body = await response.json() as PublishResult & { message?: string };
       if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'The test project could not be published.');
       setPublished(body);
-      setMessage('Project published. Your capture assignment is ready.');
+      setMessage('Project published. Importing the boundary streets as unwalked…');
+      await importProjectStreets(body.project.id);
       await loadAssignmentOptions(body.project.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The test project could not be published.');
@@ -197,13 +198,13 @@ export default function NewProjectPage() {
     }
   }
 
-  async function importProjectStreets() {
-    if (!published) return;
+  async function importProjectStreets(projectId = published?.project.id) {
+    if (!projectId) return;
     setStreetImportBusy(true);
     setStreetImportMessage('Importing road geometry inside the published polygon…');
     try {
       const token = await getFieldToken();
-      const response = await fetch(`${fieldApiOrigin()}/api/v1/dev/projects/${encodeURIComponent(published.project.id)}/import-streets`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${fieldApiOrigin()}/api/v1/dev/projects/${encodeURIComponent(projectId)}/import-streets`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const body = await response.json() as { segmentCount?: number; message?: string };
       if (!response.ok || !body.segmentCount) throw new Error(body.message ?? 'The project streets could not be imported.');
       setStreetImportMessage(`${body.segmentCount} street segments imported. They begin red and turn green only where walking is confirmed.`);
@@ -234,7 +235,7 @@ export default function NewProjectPage() {
           <div className={questionStyles.questionBuilder}><div><strong>Additional questionnaire fields</strong><span>Create text, number or selection questions for this project.</span></div>{questions.map((question, index) => <fieldset key={`${question.id}-${index}`}><input aria-label="Question field name" value={question.id} placeholder="fieldName" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, id: event.target.value.replace(/[^A-Za-z0-9_]/g, '') } : item))}/><input aria-label="Question label" value={question.label} placeholder="Question shown to capturer" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))}/><select aria-label="Question type" value={question.type} onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value as ProjectQuestion['type'] } : item))}><option value="text">Text</option><option value="number">Number</option><option value="select">Select one</option></select>{question.type === 'select' ? <input aria-label="Selectable options" value={question.options.join(', ')} placeholder="Option A, Option B" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, options: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) } : item))}/> : null}<label className={questionStyles.requiredField}><input type="checkbox" checked={question.required} onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, required: event.target.checked } : item))}/>Required</label><button type="button" onClick={() => setQuestions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></fieldset>)}<button type="button" onClick={() => setQuestions((current) => [...current, { id: `question${current.length + 1}`, label: '', type: 'text', required: true, options: [] }])}>＋ Add questionnaire field</button></div>
           <div className={styles.scope}><strong>What publication creates</strong><span>Active project and immutable boundary version</span><span>Exception-only store QA policy</span><span>Assignment to your current account</span><span>Ready field search session</span></div>
           <p className={styles.message} role="status">{message}</p>
-          {published ? <div className={styles.success}><strong>{published.project.name} is live</strong><span>{published.assignment.areaName} · {published.project.boundaryAreaSquareKm.toFixed(2)} km²</span><button className={styles.publish} type="button" disabled={streetImportBusy} onClick={() => void importProjectStreets()}>{streetImportBusy ? 'Importing polygon streets…' : 'Import worked and outstanding streets'}</button><span>{streetImportMessage}</span><Link href={published.links.fieldMap}>Open assignment and capture →</Link><Link href={published.links.projectMap ?? `/projects/demo/map?project=${encodeURIComponent(published.project.id)}`}>Open this project map →</Link></div>
+          {published ? <div className={styles.success}><strong>{published.project.name} is live</strong><span>{published.assignment.areaName} · {published.project.boundaryAreaSquareKm.toFixed(2)} km²</span><button className={styles.publish} type="button" disabled={streetImportBusy} onClick={() => void importProjectStreets()}>{streetImportBusy ? 'Importing polygon streets…' : 'Re-import roads inside boundary'}</button><span>{streetImportMessage}</span><Link href={published.links.fieldMap}>Open assignment and capture →</Link><Link href={published.links.projectMap ?? `/projects/demo/map?project=${encodeURIComponent(published.project.id)}`}>Open this project map →</Link></div>
             : <button className={styles.publish} type="button" disabled={busy || boundary.length < 3 || name.trim().length < 3 || areaName.trim().length < 2} onClick={publishProject}>{busy ? 'Publishing…' : 'Publish test capture area'}</button>}
           <small>This development shortcut assigns the publishing administrator as capturer for this test. Production setup will keep administrator and field roles separate.</small>
         </section>
