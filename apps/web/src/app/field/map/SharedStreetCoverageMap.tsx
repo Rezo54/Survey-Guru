@@ -2,6 +2,6 @@
 
 import ProjectCoverageMap from '../../../components/ProjectCoverageMap';
 
-export default function SharedStreetCoverageMap({ projectId, refreshKey }: { projectId: string; refreshKey: number }) {
-  return <ProjectCoverageMap projectId={projectId} refreshKey={refreshKey} variant="field" />;
+export default function SharedStreetCoverageMap({ projectId, refreshKey, captureHref }: { projectId: string; refreshKey: number; captureHref?: string }) {
+  return <ProjectCoverageMap projectId={projectId} refreshKey={refreshKey} variant="field" {...(captureHref ? { captureHref } : {})} />;
 }
