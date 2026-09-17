@@ -7,7 +7,7 @@ import { ProjectSetupValidationError, validateProjectAssignment, validateProject
 import { buildOverpassRoadQuery, projectStreetSegmentsFromOverpass, type OverpassResponse } from './osm-street-geometry.js';
 import { parseOptionalBoundary } from './street-coverage-data.js';
 
-type ProjectSetupBody = { name?: unknown; areaName?: unknown; boundary?: unknown };
+type ProjectSetupBody = { name?: unknown; areaName?: unknown; boundary?: unknown; timeZone?: unknown; formTemplateId?: unknown; questions?: unknown };
 type ProjectAssignmentBody = { userId?: unknown; areaName?: unknown };
 
 export class ProjectSetupRequestError extends Error {
@@ -162,7 +162,9 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     });
     batch.create(firestore.collection('projects').doc(projectId), {
       workspaceId: authority.workspaceId, name: setup.name, status: 'active', environment: 'dev', coveragePolicyId,
-      storeCaptureRequiredQuestionIds: ['ownerName', 'stockedBrands', 'pricing'],
+      timeZone: setup.timeZone,
+      storeCaptureForm: { templateId: setup.formTemplateId, version: 1, questions: setup.questions },
+      storeCaptureRequiredQuestionIds: [...(setup.formTemplateId === 'STANDARD_FMCG' ? ['ownerName', 'brandProducts'] : []), ...setup.questions.filter((question) => question.required).map((question) => question.id)],
       storeQaPolicy: { mode: 'EXCEPTION_ONLY', autoVerifyEnabled: true, manualApprovalBeforeExport: false, maximumGpsAccuracyMetres: 30, minimumPhotoCount: 1, policyVersion: 'store-qa-dev-v1' },
       boundary: setup.boundary, boundaryVersion: `dev-${suffix}`, boundaryAreaSquareKm: setup.areaSquareKm,
       summary: { searchedPercent: 0, outstandingKm: 0, verifiedPriorityOutlets: 0, networkDecision: 'not-yet' },
@@ -184,7 +186,7 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     await batch.commit();
 
     return {
-      project: { id: projectId, name: setup.name, status: 'active', boundaryAreaSquareKm: setup.areaSquareKm },
+      project: { id: projectId, name: setup.name, status: 'active', boundaryAreaSquareKm: setup.areaSquareKm, timeZone: setup.timeZone, formTemplateId: setup.formTemplateId },
       assignment: { id: assignmentId, areaName: setup.areaName, assignedUserId: identity.uid },
       searchSession: { id: searchSessionId, state: 'READY' },
       links: { fieldMap: `/field/map?session=${encodeURIComponent(searchSessionId)}`, projectMap: `/projects/demo/map?project=${encodeURIComponent(projectId)}` },
