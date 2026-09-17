@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fieldApiOrigin, getFieldToken } from '../app/field/map/field-api';
 import styles from './ProjectCoverageMap.module.css';
+import storeStyles from './ProjectStoreMarkers.module.css';
 
 declare global {
   interface Window {
@@ -27,9 +28,11 @@ type CoverageResponse = {
   ownership: 'PROJECT_SHARED';
   projectBoundary?: Coordinate[];
   streetSegments: CoverageSegment[];
+  capturedStores?: CapturedStore[];
   summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number };
   message?: string;
 };
+type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturedAt?: string; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -44,7 +47,7 @@ const coverageLabels: Readonly<Record<CoverageColour, string>> = {
 };
 
 function coverageSignature(coverage: CoverageResponse): string {
-  return coverage.streetSegments.map((segment) => {
+  const streets = coverage.streetSegments.map((segment) => {
     const slices = segment.coverageSlices?.map((slice) => {
       const first = slice.geometry[0];
       const last = slice.geometry[slice.geometry.length - 1];
@@ -52,6 +55,8 @@ function coverageSignature(coverage: CoverageResponse): string {
     }).join('|') ?? '';
     return `${segment.projectStreetSegmentId}:${segment.coverageState}:${segment.coverageColour}:${slices}`;
   }).join(';');
+  const stores = (coverage.capturedStores ?? []).map((store) => `${store.captureId}:${store.status}:${store.photoCount}:${store.location.latitude}:${store.location.longitude}`).join(';');
+  return `${streets}::${stores}`;
 }
 export const darkRoadmapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0c1e27' }] },
@@ -103,6 +108,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
   const roadLinesRef = useRef<RoadLine[]>([]);
+  const storeMarkersRef = useRef<any[]>([]);
+  const photoUrlsRef = useRef<string[]>([]);
   const locationMarkerRef = useRef<any>(null);
   const zoomListenerRef = useRef<any>(null);
   const controlsAttachedRef = useRef(false);
@@ -112,6 +119,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [coverageVisible, setCoverageVisible] = useState(true);
+  const [storesVisible, setStoresVisible] = useState(true);
   const [visibleColours, setVisibleColours] = useState<Readonly<Record<CoverageColour, boolean>>>({ red: true, green: true, amber: true });
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -171,6 +179,10 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   }, [effectiveCoverageVisible, visibleColours]);
 
   useEffect(() => {
+    for (const marker of storeMarkersRef.current) marker.setVisible(storesVisible);
+  }, [storesVisible]);
+
+  useEffect(() => {
     mapRef.current?.setMapTypeId(mapType);
   }, [mapType]);
 
@@ -211,6 +223,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       for (const overlay of overlaysRef.current) overlay.setMap(null);
       overlaysRef.current = [];
       roadLinesRef.current = [];
+      storeMarkersRef.current = [];
       const bounds = new maps.LatLngBounds();
 
       if (coverage.projectBoundary && coverage.projectBoundary.length >= 3) {
@@ -231,6 +244,38 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           overlaysRef.current.push(roadLine);
           roadLinesRef.current.push({ line: roadLine, colour: slice.colour });
         }
+      }
+      for (const store of coverage.capturedStores ?? []) {
+        if (!Number.isFinite(store.location?.latitude) || !Number.isFinite(store.location?.longitude)) continue;
+        const position = { lat: store.location.latitude, lng: store.location.longitude };
+        bounds.extend(position);
+        const marker = new maps.Marker({ map, position, title: store.name, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: 7 } });
+        const infoWindow = new maps.InfoWindow();
+        marker.addListener('click', () => {
+          const panel = document.createElement('div'); panel.className = storeStyles.storePopup ?? '';
+          const heading = document.createElement('strong'); heading.textContent = store.name;
+          const meta = document.createElement('span'); meta.textContent = `${store.status === 'SYNCED' ? 'Synced' : 'Ready for export'} · ${store.capturedAt ? new Date(store.capturedAt).toLocaleString() : 'Captured'}`;
+          panel.append(heading, meta);
+          const pricing = Array.isArray(store.answers?.pricing) ? store.answers.pricing as Array<{ product?: unknown; price?: unknown }> : [];
+          for (const item of pricing) { const detail = document.createElement('span'); detail.textContent = `${String(item.product ?? 'Product')} · ${typeof item.price === 'number' ? item.price.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' }) : 'Price unavailable'}`; panel.append(detail); }
+          if (store.photoCount > 0) {
+            const gallery = document.createElement('div'); gallery.className = storeStyles.storeGallery ?? '';
+            const loading = document.createElement('span'); loading.textContent = `Loading ${store.photoCount} photo${store.photoCount === 1 ? '' : 's'}…`; gallery.append(loading); panel.append(gallery);
+            void (async () => {
+              try {
+                const token = await getFieldToken();
+                const photos = await Promise.all(Array.from({ length: store.photoCount }, async (_, index) => {
+                  const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/store-captures/${encodeURIComponent(store.captureId)}/photos/${index}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+                  if (!response.ok) throw new Error('Photo unavailable');
+                  const url = URL.createObjectURL(await response.blob()); photoUrlsRef.current.push(url); return url;
+                }));
+                gallery.replaceChildren(...photos.map((url, index) => { const image = document.createElement('img'); image.src = url; image.alt = `${store.name} evidence ${index + 1}`; return image; }));
+              } catch { loading.textContent = 'Photo evidence is temporarily unavailable.'; }
+            })();
+          }
+          infoWindow.setContent(panel); infoWindow.open({ map, anchor: marker });
+        });
+        overlaysRef.current.push(marker); storeMarkersRef.current.push(marker);
       }
       if (!zoomListenerRef.current) {
         zoomListenerRef.current = map.addListener('zoom_changed', () => {
@@ -253,6 +298,9 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     for (const overlay of overlaysRef.current) overlay.setMap(null);
     overlaysRef.current = [];
     roadLinesRef.current = [];
+    storeMarkersRef.current = [];
+    for (const url of photoUrlsRef.current) URL.revokeObjectURL(url);
+    photoUrlsRef.current = [];
     locationMarkerRef.current?.setMap(null);
     locationMarkerRef.current = null;
   }, []);
@@ -264,6 +312,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const coverageControls = variant !== 'field' && controlsVisible ? <div className={styles.coverageControls} aria-label="Coverage layer controls">
     <button type="button" className={effectiveCoverageVisible ? styles.controlActive : ''} onClick={() => setCoverageVisible((current) => !current)} aria-pressed={effectiveCoverageVisible}>Coverage {effectiveCoverageVisible ? 'on' : 'off'}</button>
     {(Object.keys(coverageLabels) as CoverageColour[]).map((colour) => <button key={colour} type="button" className={effectiveCoverageVisible && visibleColours[colour] ? styles.controlActive : ''} onClick={() => toggleColour(colour)} aria-pressed={effectiveCoverageVisible && visibleColours[colour]} disabled={!effectiveCoverageVisible}><i className={styles[colour]}/>{coverageLabels[colour]}</button>)}
+    <button type="button" className={storesVisible ? styles.controlActive : ''} onClick={() => setStoresVisible((current) => !current)} aria-pressed={storesVisible}><i className={storeStyles.storeDot}/>Captured stores</button>
     {variant === 'dashboard' ? <a className={styles.expandMap} href="/projects/demo/map" aria-label="Expand project map">⤢ Expand map</a> : null}
   </div> : null;
 
@@ -273,7 +322,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       <div ref={hostRef} className={styles.canvas} />
       {controlsHost && coverageControls ? createPortal(coverageControls, controlsHost) : null}
     </> : <div className={styles.fallback}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to display the street geometry.</div>}
-    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
+    <div className={styles.legend}><span><i className={styles.green}/>Walked</span><span><i className={styles.amber}/>Unresolved</span><span><i className={styles.red}/>Not walked</span><span><i className={storeStyles.storeDot}/>Captured store</span><b>{usesOpenStreetMap ? 'Street geometry © OpenStreetMap contributors · ' : ''}Project boundary and shared coverage · refreshes every 15 seconds</b></div>
     {error ? <p className={styles.error}>{error}</p> : null}
   </section>;
 }
