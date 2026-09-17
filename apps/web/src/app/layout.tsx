@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { PwaRegister } from './pwa-register';
+import ThemeToggle from '../components/ThemeToggle';
 import './styles.css';
+import './theme.css';
 
 export const metadata: Metadata = {
   title: 'Survey Guru',
@@ -20,6 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en">
       <body>
         <PwaRegister />
+        <ThemeToggle />
         {children}
       </body>
     </html>
