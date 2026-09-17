@@ -233,13 +233,17 @@
 
 .mapTypes {
     display: flex;
-    background: #0a2636;
-    border: 1px solid #1e4c5e;
-    border-radius: 9px;
-    overflow: hidden
+    align-items: center;
+    gap: 10px;
+    min-width: 0
 }
 
-.mapTypes button {
+.projectChooser,.baseMapTypes{display:flex;align-items:center;border:1px solid #1e4c5e;border-radius:9px;background:#0a2636;overflow:hidden}
+.projectChooser select{height:38px;max-width:260px;border:0;border-right:1px solid #1e4c5e;padding:0 12px;background:#0b2939;color:#eef8f5;font:inherit;font-size:.72rem}
+.projectChooser a{height:38px;display:flex;align-items:center;padding:0 13px;color:#dff6f1;text-decoration:none;font-size:.7rem;font-weight:800;white-space:nowrap}
+.projectChooser a:hover{background:#123d49;color:#fff}
+
+.baseMapTypes button {
     padding: 9px 16px;
     color: #b8cbc8;
     font-size: .68rem;
@@ -692,9 +696,16 @@
         align-items: flex-start
     }
 
-    .mapTypes button {
+    .baseMapTypes button {
         padding: 8px 10px
     }
+
+    .mapToolbar{flex-wrap:wrap}
+    .mapTypes{width:100%;flex-wrap:wrap}
+    .projectChooser{flex:1 1 100%;justify-content:space-between}
+    .projectChooser select{max-width:none;min-width:0;flex:1}
+    .baseMapTypes{width:100%}
+    .baseMapTypes button{flex:1}
 
     .mapTools button:not(:last-child) {
         display: none
