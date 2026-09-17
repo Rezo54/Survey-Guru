@@ -2,9 +2,39 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Evidence binaries are protected business data. Browser access is denied
-    // by default and must flow through authorised server operations or a future
-    // narrowly scoped, independently tested exception.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function editableOwnedCapture(workspaceId, projectId, captureId) {
+      let capture = firestore.get(/databases/(default)/documents/storeCaptures/$(captureId)).data;
+      return signedIn()
+        && capture.capturerUserId == request.auth.uid
+        && capture.workspaceId == workspaceId
+        && capture.projectId == projectId
+        && capture.status in ['DRAFT', 'NEEDS_REVIEW'];
+    }
+
+    function validStorePhoto() {
+      return request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.metadata.sha256.size() == 64
+        && request.resource.metadata.sha256.matches('[0-9a-fA-F]+');
+    }
+
+    match /workspaces/{workspaceId}/projects/{projectId}/captures/{captureId}/{fileName} {
+      // The API creates the scoped Firestore draft first. Only that capturer can
+      // upload or replace its image while the capture remains editable.
+      allow create, update: if editableOwnedCapture(workspaceId, projectId, captureId)
+        && validStorePhoto();
+      allow delete: if editableOwnedCapture(workspaceId, projectId, captureId);
+
+      // Evidence retrieval remains server-mediated so QA and reporting access
+      // can be permission checked and audited independently.
+      allow read: if false;
+    }
+
     match /{object=**} {
       allow read, write: if false;
     }
