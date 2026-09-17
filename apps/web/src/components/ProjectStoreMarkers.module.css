@@ -42,3 +42,6 @@
   border-radius: 7px;
   object-fit: cover;
 }
+
+.reviewStoreButton { margin-top: 7px; padding: 8px 10px; border: 1px solid #b16c0d; border-radius: 8px; background: #fff5df; color: #6d4000; font: 750 .75rem/1.2 system-ui,sans-serif; cursor: pointer; }
+.reviewStoreButton:disabled { cursor: wait; opacity: .65; }
