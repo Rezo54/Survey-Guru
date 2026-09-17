@@ -122,6 +122,7 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
         <div className={classes.projectChooser} aria-label="Active project">
           <select aria-label="Active project" value={activeProjectId} onChange={(event) => setActiveProjectId(event.target.value)} disabled={!projects.length}>{projects.length ? projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>) : <option value={activeProjectId}>Loading projects…</option>}</select>
           {canCreateProjects ? <Link href="/projects/new">＋ New project area</Link> : null}
+          {canCreateProjects ? <button type="button" onClick={() => void archiveProject()} disabled={archiving || !activeProjectId}>{archiving ? 'Deleting…' : 'Delete project'}</button> : null}
         </div>
         <div className={classes.baseMapTypes} aria-label="Map type">{mapTypes.map(([value, label]) => <button key={value} type="button" className={mapType === value ? classes.selected : ''} onClick={() => setMapType(value)} aria-pressed={mapType === value}>{label}</button>)}</div>
       </div>
@@ -129,7 +130,6 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
         <button type="button" className={coverageLayerVisible ? classes.selected : ''} onClick={() => setCoverageLayerVisible((current) => !current)} aria-pressed={coverageLayerVisible}>▱ Layers</button>
         <button type="button" className={filtersVisible ? classes.selected : ''} onClick={() => setFiltersVisible((current) => !current)} aria-pressed={filtersVisible}>▽ Filter</button>
         <button type="button" onClick={() => setLocateRequest((current) => current + 1)}>⌾ Locate</button>
-        {canCreateProjects ? <button type="button" onClick={() => void archiveProject()} disabled={archiving || !activeProjectId}>{archiving ? 'Deleting…' : 'Delete project'}</button> : null}
         <select aria-label="Store report status" value={exportStatuses} onChange={(event) => setExportStatuses(event.target.value)}><option value="">All store statuses</option><option value="READY_FOR_EXPORT,SYNCED">Correct captures</option><option value="SUBMITTED,NEEDS_REVIEW">In review or redo</option><option value="REJECTED">Rejected stores</option></select>
         <button type="button" onClick={() => void downloadStoreReport()} disabled={exporting}>{exporting ? 'Preparing…' : '⇩ Excel'}</button>
         <button type="button" onClick={(event) => enterFullscreen(event.currentTarget)} aria-label="Open map fullscreen">⛶</button>
