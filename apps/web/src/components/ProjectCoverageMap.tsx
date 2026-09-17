@@ -304,16 +304,31 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       if (!placeListenerRef.current && !searchControlRef.current) void loadGooglePlaces().then(() => {
         if (cancelled || searchControlRef.current) return;
         const control = document.createElement('div'); control.className = styles.googlePlaceSearch ?? '';
+        const searchButton = document.createElement('button');
+        searchButton.type = 'button'; searchButton.className = styles.googlePlaceSearchButton ?? '';
+        searchButton.title = 'Search places and streets'; searchButton.setAttribute('aria-label', 'Search places and streets'); searchButton.setAttribute('aria-expanded', 'false');
+        searchButton.innerHTML = '<span aria-hidden="true">⌕</span>';
+        const searchPanel = document.createElement('div'); searchPanel.className = styles.googlePlaceSearchPanel ?? '';
+        control.append(searchPanel, searchButton);
+        const setSearchOpen = (open: boolean) => {
+          control.classList.toggle(styles.googlePlaceSearchOpen ?? '', open);
+          searchButton.setAttribute('aria-expanded', String(open));
+          if (open) window.setTimeout(() => searchPanel.querySelector<HTMLElement>('input, gmp-place-autocomplete')?.focus(), 0);
+        };
+        const onSearchButtonClick = () => setSearchOpen(searchButton.getAttribute('aria-expanded') !== 'true');
+        const onSearchKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setSearchOpen(false); searchButton.focus(); } };
+        searchButton.addEventListener('click', onSearchButtonClick); control.addEventListener('keydown', onSearchKeyDown);
         if (maps.places?.PlaceAutocompleteElement) {
-          const autocomplete = new maps.places.PlaceAutocompleteElement({}); autocomplete.setAttribute('placeholder', 'Search places and streets'); autocomplete.setAttribute('aria-label', 'Search Google Maps'); control.append(autocomplete);
-          const onSelect = async (event: any) => { const place = event.placePrediction?.toPlace?.(); if (!place) return; await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'viewport'] }); if (place.viewport) map.fitBounds(place.viewport); else if (place.location) { map.panTo(place.location); map.setZoom(17); } setError(null); };
-          autocomplete.addEventListener('gmp-select', onSelect); placeListenerRef.current = { remove: () => autocomplete.removeEventListener('gmp-select', onSelect) };
+          const autocomplete = new maps.places.PlaceAutocompleteElement({}); autocomplete.setAttribute('placeholder', 'Search places and streets'); autocomplete.setAttribute('aria-label', 'Search Google Maps'); searchPanel.append(autocomplete);
+          const onSelect = async (event: any) => { const place = event.placePrediction?.toPlace?.(); if (!place) return; await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'viewport'] }); if (place.viewport) map.fitBounds(place.viewport); else if (place.location) { map.panTo(place.location); map.setZoom(17); } setSearchOpen(false); setError(null); };
+          autocomplete.addEventListener('gmp-select', onSelect); placeListenerRef.current = { remove: () => { autocomplete.removeEventListener('gmp-select', onSelect); searchButton.removeEventListener('click', onSearchButtonClick); control.removeEventListener('keydown', onSearchKeyDown); } };
         } else if (maps.places?.Autocomplete) {
-          const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search places and streets'; input.setAttribute('aria-label', 'Search Google Maps'); control.append(input);
+          const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search places and streets'; input.setAttribute('aria-label', 'Search Google Maps'); searchPanel.append(input);
           const autocomplete = new maps.places.Autocomplete(input, { fields: ['geometry', 'name', 'formatted_address'] }); autocomplete.bindTo('bounds', map);
-          placeListenerRef.current = autocomplete.addListener('place_changed', () => { const place = autocomplete.getPlace(); if (!place.geometry?.location) return; if (place.geometry.viewport) map.fitBounds(place.geometry.viewport); else { map.panTo(place.geometry.location); map.setZoom(17); } setError(null); });
+          const autocompleteListener = autocomplete.addListener('place_changed', () => { const place = autocomplete.getPlace(); if (!place.geometry?.location) return; if (place.geometry.viewport) map.fitBounds(place.geometry.viewport); else { map.panTo(place.geometry.location); map.setZoom(17); } setSearchOpen(false); setError(null); });
+          placeListenerRef.current = { remove: () => { autocompleteListener.remove(); searchButton.removeEventListener('click', onSearchButtonClick); control.removeEventListener('keydown', onSearchKeyDown); } };
         } else return;
-        map.controls[maps.ControlPosition.TOP_CENTER].push(control); searchControlRef.current = control;
+        map.controls[maps.ControlPosition.RIGHT_BOTTOM].push(control); searchControlRef.current = control;
       }).catch(() => setError('Google Places search is temporarily unavailable.'));
       if (variant !== 'field' && !controlsAttachedRef.current) {
         const controlHost = document.createElement('div');
