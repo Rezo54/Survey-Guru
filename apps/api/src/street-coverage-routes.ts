@@ -50,11 +50,12 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       return [userId, user.get('displayName') ?? user.get('email') ?? userId] as const;
     }));
     const capturerNames = new Map(capturerEntries);
-    const johannesburgDay = (value: unknown) => {
+    const projectTimeZone = typeof project.get('timeZone') === 'string' ? project.get('timeZone') : 'Africa/Johannesburg';
+    const projectDay = (value: unknown) => {
       const date = new Date(String(value ?? ''));
-      return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date) : '';
+      return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-CA', { timeZone: projectTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date) : '';
     };
-    const today = johannesburgDay(new Date().toISOString());
+    const today = projectDay(new Date().toISOString());
     const capturedStores = authorisedCaptures
       .filter((document) => ['READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
       .map((document) => ({
@@ -67,14 +68,17 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         capturerUserId: document.get('capturerUserId'),
         capturerName: capturerNames.get(String(document.get('capturerUserId'))) ?? document.get('capturerUserId'),
         capturedAt: document.get('submittedAt') ?? document.get('updatedAt'),
-        capturedToday: johannesburgDay(document.get('submittedAt') ?? document.get('updatedAt')) === today,
+        projectTimeZone: document.get('projectTimeZone') ?? projectTimeZone,
+        capturedLocalTime: document.get('submittedLocalTime') ?? null,
+        capturedToday: projectDay(document.get('submittedAt') ?? document.get('updatedAt')) === today,
         photoCount: Array.isArray(document.get('photos')) ? document.get('photos').length : 0,
         exportState: document.get('exportJobId') ? 'QUEUED' : 'NOT_QUEUED',
       }));
     const brandCounts = new Map<string, number>();
     for (const document of authorisedCaptures) {
       const answers = document.get('answers') as Record<string, unknown> | undefined;
-      const brands = Array.isArray(answers?.stockedBrands) ? answers.stockedBrands : [];
+      const modernBrands = Array.isArray(answers?.brandProducts) ? answers.brandProducts.map((item) => item && typeof item === 'object' ? (item as Record<string, unknown>).brand : undefined) : [];
+      const brands = modernBrands.length ? modernBrands : Array.isArray(answers?.stockedBrands) ? answers.stockedBrands : [];
       for (const brand of brands) if (typeof brand === 'string' && brand.trim()) brandCounts.set(brand.trim(), (brandCounts.get(brand.trim()) ?? 0) + 1);
     }
     const statusCounts = Object.fromEntries(authorisedCaptures.reduce((counts, document) => {
