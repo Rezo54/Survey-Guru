@@ -20,7 +20,7 @@ export default async function ProjectMapPage({ searchParams }: { searchParams: P
     return <main className={styles.page}><div className={styles.shell}>
         <SurveyGuruSidebar active="project-map" />
         <section className={styles.main}>
-            <header className={styles.top}><div className={styles.search}>⌕ &nbsp; Search streets, outlets, teams or opportunities…</div><div className={styles.topRight}><button className={styles.location}>⌖ &nbsp; Soweto⌄</button><span className={styles.bell}>♧</span><span className={styles.user}>B</span></div></header>
+            <header className={styles.top}><strong>Project intelligence</strong><div className={styles.topRight}><span className={styles.bell}>♧</span><span className={styles.user}>B</span></div></header>
             <div className={styles.content}>
                 <section className={styles.heading}><div><h1>Project Map & Coverage</h1><p>Select an active authorised project and see what was searched, verified and remains unknown.</p></div><div className={styles.projectSelect}><span>Active project</span><b>Selected on map</b></div></section>
                 <section className={styles.mapPanel}><ProjectGoogleMap projectId={projectId} classes={{ mapToolbar: styles.mapToolbar, mapTypes: styles.mapTypes, projectChooser: styles.projectChooser, baseMapTypes: styles.baseMapTypes, selected: styles.selected, mapTools: styles.mapTools }} /></section>
