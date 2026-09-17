@@ -196,9 +196,11 @@ export function validateStoreCaptureSubmission(draft: StoreCaptureDraft, require
     if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) issues.push(`Question ${questionId} requires an answer.`);
   }
   if (Array.isArray(draft.answers.brandProducts)) {
+    const selectedProducts = new Set<string>();
     for (const [index, value] of draft.answers.brandProducts.entries()) {
       const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
       if (typeof item.brand !== 'string' || !item.brand.trim() || typeof item.product !== 'string' || !item.product.trim()) issues.push(`Brand ${index + 1} requires a brand and product.`);
+      else { const key = `${item.brand.trim().toLocaleLowerCase()}\u0000${item.product.trim().toLocaleLowerCase()}`; if (selectedProducts.has(key)) issues.push(`Product ${item.brand.trim()} ${item.product.trim()} was selected more than once.`); selectedProducts.add(key); }
       for (const field of ['purchasePrice', 'sellingPrice', 'dailySalesVolume'] as const) {
         if (typeof item[field] !== 'number' || !Number.isFinite(item[field]) || item[field] < 0) issues.push(`Brand ${index + 1} requires a valid ${field}.`);
       }
