@@ -41,6 +41,7 @@ export default function NewProjectPage() {
   const [streetImportMessage, setStreetImportMessage] = useState('Import the polygon streets before field testing so worked and outstanding roads are both visible.');
   const [options, setOptions] = useState<AssignmentOptions | null>(null);
   const [adminAccess, setAdminAccess] = useState<'checking' | 'allowed' | 'denied'>('checking');
+  const [mapState, setMapState] = useState<'waiting' | 'loading' | 'ready' | 'error'>('waiting');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedCapturerId, setSelectedCapturerId] = useState('');
   const [assignmentAreaName, setAssignmentAreaName] = useState('Test capture area');
@@ -100,8 +101,9 @@ export default function NewProjectPage() {
   }
 
   useEffect(() => {
-    if (!apiKey || !hostRef.current) return;
+    if (adminAccess !== 'allowed' || !apiKey || !hostRef.current) return;
     let cancelled = false;
+    setMapState('loading');
     void loadGoogleMaps(apiKey).then(() => {
       if (cancelled || !hostRef.current || !window.google?.maps) return;
       const maps = window.google.maps;
@@ -118,9 +120,10 @@ export default function NewProjectPage() {
           return points;
         });
       });
-    }).catch((error) => setMessage(error instanceof Error ? error.message : 'Google Maps failed to load.'));
+      setMapState('ready');
+    }).catch((error) => { setMapState('error'); setMessage(error instanceof Error ? error.message : 'Google Maps failed to load.'); });
     return () => { cancelled = true; clickListenerRef.current?.remove(); polygonRef.current?.setMap(null); };
-  }, [apiKey]);
+  }, [adminAccess, apiKey]);
 
   async function publishProject() {
     setBusy(true);
@@ -187,7 +190,7 @@ export default function NewProjectPage() {
       <header className={styles.header}><div><p>Survey Guru · Project setup</p><h1>Define a test capture area</h1><span>Draw the authorised boundary, publish it, then enter the field workflow using the assignment created for your signed-in account.</span></div><Link href="/projects/demo/map">Back to project map</Link></header>
       <div className={styles.grid}>
         <section className={styles.mapCard}>
-          <div ref={hostRef} className={styles.map}>{!apiKey ? 'Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to draw the project area.' : null}</div>
+          <div className={styles.mapFrame}><div ref={hostRef} className={styles.map}/>{!apiKey ? <div className={styles.mapNotice}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to draw the project area.</div> : mapState !== 'ready' ? <div className={styles.mapNotice}>{mapState === 'error' ? 'Google Maps could not load. Check the allowed website on the Maps API key, then refresh.' : 'Loading project-area map…'}</div> : null}</div>
           <div className={styles.mapActions}><button type="button" onClick={locateAndDraft}>⌾ Use area around me</button><button type="button" onClick={() => syncPolygon(boundary.slice(0, -1))} disabled={!boundary.length}>Undo point</button><button type="button" onClick={() => syncPolygon([])} disabled={!boundary.length}>Clear boundary</button></div>
         </section>
         <section className={styles.formCard}>
