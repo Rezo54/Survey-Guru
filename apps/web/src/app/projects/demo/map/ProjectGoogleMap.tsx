@@ -8,6 +8,8 @@ import { fieldApiOrigin, getFieldToken } from '../../../field/map/field-api';
 type ToolbarClasses = Readonly<{
   mapToolbar: string | undefined;
   mapTypes: string | undefined;
+  projectChooser: string | undefined;
+  baseMapTypes: string | undefined;
   selected: string | undefined;
   mapTools: string | undefined;
 }>;
@@ -98,10 +100,12 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
 
   return <>
     <div className={classes.mapToolbar}>
-      <div className={classes.mapTypes} aria-label="Map type">
-        <select aria-label="Active project" value={activeProjectId} onChange={(event) => setActiveProjectId(event.target.value)} disabled={!projects.length}>{projects.length ? projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>) : <option value={activeProjectId}>Loading projects…</option>}</select>
-        {canCreateProjects ? <Link href="/projects/new">＋ New project area</Link> : null}
-        {mapTypes.map(([value, label]) => <button key={value} type="button" className={mapType === value ? classes.selected : ''} onClick={() => setMapType(value)} aria-pressed={mapType === value}>{label}</button>)}
+      <div className={classes.mapTypes}>
+        <div className={classes.projectChooser} aria-label="Active project">
+          <select aria-label="Active project" value={activeProjectId} onChange={(event) => setActiveProjectId(event.target.value)} disabled={!projects.length}>{projects.length ? projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>) : <option value={activeProjectId}>Loading projects…</option>}</select>
+          {canCreateProjects ? <Link href="/projects/new">＋ New project area</Link> : null}
+        </div>
+        <div className={classes.baseMapTypes} aria-label="Map type">{mapTypes.map(([value, label]) => <button key={value} type="button" className={mapType === value ? classes.selected : ''} onClick={() => setMapType(value)} aria-pressed={mapType === value}>{label}</button>)}</div>
       </div>
       <div className={classes.mapTools}>
         <button type="button" className={coverageLayerVisible ? classes.selected : ''} onClick={() => setCoverageLayerVisible((current) => !current)} aria-pressed={coverageLayerVisible}>▱ Layers</button>
