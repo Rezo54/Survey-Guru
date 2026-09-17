@@ -28,11 +28,11 @@ async function unzipXml(file: File): Promise<Map<string, string>> {
 
 function rowsFromSheet(xml: string, sharedStrings: string[]): string[][] {
   const document = new DOMParser().parseFromString(xml, 'application/xml'); const rows: string[][] = [];
-  for (const rowNode of Array.from(document.getElementsByTagName('row'))) {
+  for (const rowNode of Array.from(document.getElementsByTagNameNS('*', 'row'))) {
     const row: string[] = [];
-    for (const cell of Array.from(rowNode.getElementsByTagName('c'))) {
+    for (const cell of Array.from(rowNode.getElementsByTagNameNS('*', 'c'))) {
       const reference = cell.getAttribute('r') ?? 'A1'; const letters = reference.match(/[A-Z]+/)?.[0] ?? 'A'; let column = 0; for (const letter of letters) column = column * 26 + letter.charCodeAt(0) - 64; column -= 1;
-      const type = cell.getAttribute('t'); const raw = cell.getElementsByTagName('v')[0]?.textContent ?? cell.getElementsByTagName('t')[0]?.textContent ?? '';
+      const type = cell.getAttribute('t'); const raw = cell.getElementsByTagNameNS('*', 'v')[0]?.textContent ?? cell.getElementsByTagNameNS('*', 't')[0]?.textContent ?? '';
       row[column] = type === 's' ? sharedStrings[Number(raw)] ?? '' : raw;
     }
     rows.push(row);
@@ -47,10 +47,10 @@ function records(rows: string[][]): Array<Record<string, string>> {
 
 export async function readQuestionnaireWorkbook(file: File): Promise<QuestionnaireImport> {
   const files = await unzipXml(file); const parser = new DOMParser();
-  const sharedXml = files.get('xl/sharedStrings.xml'); const sharedStrings = sharedXml ? Array.from(parser.parseFromString(sharedXml, 'application/xml').getElementsByTagName('si')).map((node) => Array.from(node.getElementsByTagName('t')).map((text) => text.textContent ?? '').join('')) : [];
-  const workbook = parser.parseFromString(files.get('xl/workbook.xml') ?? '', 'application/xml'); const relationships = parser.parseFromString(files.get('xl/_rels/workbook.xml.rels') ?? '', 'application/xml'); const targets = new Map(Array.from(relationships.getElementsByTagName('Relationship')).map((item) => [item.getAttribute('Id') ?? '', item.getAttribute('Target') ?? '']));
+  const sharedXml = files.get('xl/sharedStrings.xml'); const sharedStrings = sharedXml ? Array.from(parser.parseFromString(sharedXml, 'application/xml').getElementsByTagNameNS('*', 'si')).map((node) => Array.from(node.getElementsByTagNameNS('*', 't')).map((text) => text.textContent ?? '').join('')) : [];
+  const workbook = parser.parseFromString(files.get('xl/workbook.xml') ?? '', 'application/xml'); const relationships = parser.parseFromString(files.get('xl/_rels/workbook.xml.rels') ?? '', 'application/xml'); const targets = new Map(Array.from(relationships.getElementsByTagNameNS('*', 'Relationship')).map((item) => [item.getAttribute('Id') ?? '', item.getAttribute('Target') ?? '']));
   const sheets = new Map<string, string[][]>();
-  for (const sheet of Array.from(workbook.getElementsByTagName('sheet'))) { const name = sheet.getAttribute('name') ?? ''; const id = sheet.getAttribute('r:id') ?? sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') ?? ''; const target = targets.get(id); if (!target) continue; const path = target.startsWith('/') ? target.slice(1) : `xl/${target.replace(/^\.\//, '')}`; const xml = files.get(path); if (xml) sheets.set(name.toLowerCase(), rowsFromSheet(xml, sharedStrings)); }
+  for (const sheet of Array.from(workbook.getElementsByTagNameNS('*', 'sheet'))) { const name = sheet.getAttribute('name') ?? ''; const id = sheet.getAttribute('r:id') ?? sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') ?? ''; const target = targets.get(id); if (!target) continue; const path = target.startsWith('/') ? target.slice(1) : `xl/${target.replace(/^\.\//, '')}`; const xml = files.get(path); if (xml) sheets.set(name.toLowerCase(), rowsFromSheet(xml, sharedStrings)); }
   const questionRows = records(sheets.get('questionnaire') ?? []); const productRows = records(sheets.get('products') ?? []);
   const questions: QuestionnaireImport['questions'] = questionRows.map((row) => { const type: 'text' | 'number' | 'select' = row.type === 'number' || row.type === 'select' ? row.type : 'text'; return { id: row.fieldid ?? '', label: row.label ?? '', type, required: !['no', 'false', '0'].includes((row.required ?? '').toLowerCase()), options: (row.options ?? '').split('|').map((value) => value.trim()).filter(Boolean) }; });
   const products = productRows.map((row, index) => ({ brand: row.brand ?? '', product: row.product ?? '', active: !['no', 'false', '0'].includes((row.active ?? '').toLowerCase()), displayOrder: Number(row.displayorder) || index + 1 })).filter((item) => item.active);
