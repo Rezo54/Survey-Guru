@@ -30,9 +30,9 @@ batch.set(firestore.collection('projects').doc(projectId), {
   coveragePolicyId,
   storeCaptureRequiredQuestionIds: ['ownerName', 'stockedBrands', 'pricing'],
   storeQaPolicy: {
-    mode: 'HYBRID',
+    mode: 'EXCEPTION_ONLY',
     autoVerifyEnabled: true,
-    manualApprovalBeforeExport: true,
+    manualApprovalBeforeExport: false,
     maximumGpsAccuracyMetres: 30,
     minimumPhotoCount: 1,
     policyVersion: 'store-qa-dev-v1',
