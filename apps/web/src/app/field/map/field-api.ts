@@ -21,6 +21,12 @@ export async function getFieldToken(): Promise<string> {
   return user.getIdToken();
 }
 
+export async function getFieldUserLabel(): Promise<string> {
+  const user = await waitForFirebaseUser();
+  if (!user) return 'Signed-in user';
+  return user.displayName?.trim() || user.email?.split('@')[0] || 'Signed-in user';
+}
+
 export function fieldApiOrigin(): string {
   return process.env.NEXT_PUBLIC_SURVEY_GURU_API_URL ?? 'http://127.0.0.1:8080';
 }
