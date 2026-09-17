@@ -89,6 +89,18 @@ test('preflight requires a nearby store identity to be resolved before capture',
     maximumGpsAccuracyMetres: 30, identityCandidates: candidates, selectedExistingStoreId: 'store-legacy-1',
   });
   assert.equal(resolved.allowed, true);
+
+  const separateNewStore = evaluateStoreCapturePreflight({
+    location: { latitude: -26.2, longitude: 27.8, accuracyMetres: 5 }, projectBoundary,
+    maximumGpsAccuracyMetres: 30, identityCandidates: candidates, confirmedNewStore: true,
+  });
+  assert.equal(separateNewStore.allowed, true);
+
+  const conflictingChoice = evaluateStoreCapturePreflight({
+    location: { latitude: -26.2, longitude: 27.8, accuracyMetres: 5 }, projectBoundary,
+    maximumGpsAccuracyMetres: 30, identityCandidates: candidates, confirmedNewStore: true, selectedExistingStoreId: 'store-legacy-1',
+  });
+  assert.equal(conflictingChoice.allowed, false);
 });
 
 test('submission requires assignment context, questionnaire answers and photo integrity', () => {
