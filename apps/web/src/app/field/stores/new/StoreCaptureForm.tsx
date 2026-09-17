@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ref, uploadBytes } from 'firebase/storage';
 import { getFirebaseClientStorage } from '../../../../lib/firebase-client';
 import { fieldApiOrigin, getFieldToken } from '../../map/field-api';
@@ -42,6 +42,17 @@ export default function StoreCaptureForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
   const [receipt, setReceipt] = useState<{ captureId: string; status: string; automatedOutcome: string } | null>(null);
+  const locationPromptRequested = useRef(false);
+
+  useEffect(() => {
+    if (locationPromptRequested.current) return;
+    locationPromptRequested.current = true;
+    if (!window.isSecureContext) {
+      setMessage('Location permission requires a secure HTTPS connection on this phone.');
+      return;
+    }
+    locate();
+  }, []);
 
   function locate() {
     if (!navigator.geolocation) return setMessage('Location is not available in this browser.');
