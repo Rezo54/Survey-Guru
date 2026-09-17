@@ -5,6 +5,7 @@ import {
   canTransitionStoreCapture,
   classifyStoreDataRights,
   evaluateAutomatedStoreQa,
+  evaluateStoreCapturePreflight,
   findStoreIdentityCandidates,
   resolveStoreQaDecision,
   validateStoreCaptureSubmission,
@@ -43,6 +44,51 @@ test('an alias can identify an existing store without changing its canonical ide
 test('identity matching is workspace scoped and distance bounded', () => {
   assert.deepEqual(findStoreIdentityCandidates({ workspaceId: 'workspace-b', observedName: 'Zama Tuck Shop', location: { latitude: -26.2, longitude: 27.8 }, stores: existing }), []);
   assert.deepEqual(findStoreIdentityCandidates({ workspaceId: 'workspace-a', observedName: 'Zama Tuck Shop', location: { latitude: -27, longitude: 28 }, stores: existing }), []);
+});
+
+const projectBoundary = [
+  { latitude: -26.21, longitude: 27.79 },
+  { latitude: -26.19, longitude: 27.79 },
+  { latitude: -26.19, longitude: 27.81 },
+  { latitude: -26.21, longitude: 27.81 },
+];
+
+test('preflight blocks weak GPS before a store draft is created', () => {
+  const result = evaluateStoreCapturePreflight({
+    location: { latitude: -26.2, longitude: 27.8, accuracyMetres: 75 },
+    projectBoundary,
+    maximumGpsAccuracyMetres: 30,
+    identityCandidates: [],
+  });
+  assert.equal(result.allowed, false);
+  assert.ok(result.reasons.some((reason) => reason.key === 'GPS_ACCURACY'));
+});
+
+test('preflight blocks a location outside the assigned project polygon', () => {
+  const result = evaluateStoreCapturePreflight({
+    location: { latitude: -26.3, longitude: 27.8, accuracyMetres: 5 },
+    projectBoundary,
+    maximumGpsAccuracyMetres: 30,
+    identityCandidates: [],
+  });
+  assert.equal(result.allowed, false);
+  assert.ok(result.reasons.some((reason) => reason.key === 'PROJECT_BOUNDARY'));
+});
+
+test('preflight requires a nearby store identity to be resolved before capture', () => {
+  const candidates = findStoreIdentityCandidates({ workspaceId: 'workspace-a', observedName: 'New Owner Supermarket', location: { latitude: -26.2, longitude: 27.8 }, stores: existing });
+  const blocked = evaluateStoreCapturePreflight({
+    location: { latitude: -26.2, longitude: 27.8, accuracyMetres: 5 }, projectBoundary,
+    maximumGpsAccuracyMetres: 30, identityCandidates: candidates,
+  });
+  assert.equal(blocked.allowed, false);
+  assert.ok(blocked.reasons.some((reason) => reason.key === 'IDENTITY'));
+
+  const resolved = evaluateStoreCapturePreflight({
+    location: { latitude: -26.2, longitude: 27.8, accuracyMetres: 5 }, projectBoundary,
+    maximumGpsAccuracyMetres: 30, identityCandidates: candidates, selectedExistingStoreId: 'store-legacy-1',
+  });
+  assert.equal(resolved.allowed, true);
 });
 
 test('submission requires assignment context, questionnaire answers and photo integrity', () => {
@@ -97,6 +143,16 @@ test('automated QA verifies only complete, integrity-checked, accurate and ident
   assert.equal(assessment.recommendedStatus, 'VERIFIED');
   assert.equal(assessment.manualApprovalBeforeExport, true);
   assert.equal(canPublishStoreCaptureToThirdParty(assessment.recommendedStatus), false);
+});
+
+test('exception-only policy permits a clean capture to bypass human QA', () => {
+  const assessment = evaluateAutomatedStoreQa({
+    draft: draft(), requiredQuestionIds: ['ownerName', 'stockedBrands', 'pricing'], storedPhotoIntegrityVerified: true,
+    identityCandidates: [],
+    policy: { autoVerifyEnabled: true, manualApprovalBeforeExport: false, maximumGpsAccuracyMetres: 30, minimumPhotoCount: 1 },
+  });
+  assert.equal(assessment.outcome, 'AUTO_VERIFIED');
+  assert.equal(assessment.manualApprovalBeforeExport, false);
 });
 
 test('automated QA sends weak GPS or unresolved identity to human review', () => {
