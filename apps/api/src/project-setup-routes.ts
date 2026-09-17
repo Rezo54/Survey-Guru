@@ -50,10 +50,11 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     const identity = await verifyRequestIdentity(request);
     const authority = await resolveAuthority(identity);
     requirePermission(authority, 'workspace.admin');
-    const { firestore } = getFirebaseAdminServices();
-    const [projectsSnapshot, membershipsSnapshot] = await Promise.all([
+    const { firestore, auth } = getFirebaseAdminServices();
+    const [projectsSnapshot, membershipsSnapshot, firebaseUsers] = await Promise.all([
       firestore.collection('projects').where('workspaceId', '==', authority.workspaceId).where('status', '==', 'active').get(),
       firestore.collection('workspaceMemberships').where('workspaceId', '==', authority.workspaceId).where('status', '==', 'active').get(),
+      auth.listUsers(1000),
     ]);
     const capturers = (await Promise.all(membershipsSnapshot.docs.map(async (membership) => {
       const userId = membership.get('userId');
@@ -67,9 +68,13 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
       if (!user.exists || user.get('status') !== 'active' || !Array.isArray(permissions) || !permissions.includes('field.capture') || permissions.includes('workspace.admin')) return null;
       return { id: userId, email: user.get('email') ?? userId, roleKey, roleName: role.get('name') ?? roleKey };
     }))).filter((capturer): capturer is { id: string; email: string; roleKey: string; roleName: string } => capturer !== null);
+    const memberUserIds = new Set(membershipsSnapshot.docs.map((membership) => membership.get('userId')).filter((value): value is string => typeof value === 'string'));
+    const newFirebaseUsers = firebaseUsers.users
+      .filter((user) => user.uid !== identity.uid && !user.disabled && Boolean(user.email) && !memberUserIds.has(user.uid))
+      .map((user) => ({ id: user.uid, email: user.email ?? user.uid, roleKey: 'field_worker', roleName: 'New Firebase user · activate as Field Worker' }));
     return {
       projects: projectsSnapshot.docs.map((project) => ({ id: project.id, name: project.get('name'), boundaryAreaSquareKm: project.get('boundaryAreaSquareKm') ?? null, publishedAt: project.get('publishedAt') ?? null })),
-      capturers,
+      capturers: [...capturers, ...newFirebaseUsers].sort((left, right) => left.email.localeCompare(right.email)),
     };
   });
 
@@ -85,15 +90,27 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
       if (error instanceof ProjectSetupValidationError) throw new ProjectSetupRequestError(error.message);
       throw error;
     }
-    const { firestore } = getFirebaseAdminServices();
+    const { firestore, auth } = getFirebaseAdminServices();
     const project = await firestore.collection('projects').doc(request.params.projectId).get();
     if (!project.exists || project.get('workspaceId') !== authority.workspaceId || project.get('status') !== 'active') throw new ProjectSetupRequestError('Select an active project in your workspace.');
     const membershipSnapshot = await firestore.collection('workspaceMemberships').where('workspaceId', '==', authority.workspaceId).where('userId', '==', assignmentInput.userId).where('status', '==', 'active').limit(1).get();
     const membership = membershipSnapshot.docs[0];
-    if (!membership) throw new ProjectSetupRequestError('The selected capturer is not an active workspace member.');
+    if (!membership) {
+      let firebaseUser;
+      try { firebaseUser = await auth.getUser(assignmentInput.userId); }
+      catch { throw new ProjectSetupRequestError('The selected Firebase account does not exist.'); }
+      if (firebaseUser.disabled || !firebaseUser.email) throw new ProjectSetupRequestError('The selected Firebase account is disabled or has no email address.');
+      const now = new Date().toISOString();
+      const activation = firestore.batch();
+      activation.set(firestore.collection('users').doc(firebaseUser.uid), { firebaseUid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName ?? null, status: 'active', environment: 'dev', updatedAt: now }, { merge: true });
+      activation.set(firestore.collection('roleDefinitions').doc('field_worker'), { name: 'Field Worker', scope: 'workspace-project-assignment', permissions: ['project.read', 'assignment.read', 'field.capture', 'coverage.read'], environment: 'dev' }, { merge: true });
+      activation.set(firestore.collection('workspaceMemberships').doc(`wsm_${firebaseUser.uid}`), { userId: firebaseUser.uid, workspaceId: authority.workspaceId, roleKey: 'field_worker', status: 'active', environment: 'dev', activatedAt: now, activatedBy: identity.uid }, { merge: true });
+      await activation.commit();
+    }
+    const activeMembership = membership ?? await firestore.collection('workspaceMemberships').doc(`wsm_${assignmentInput.userId}`).get();
     const [user, role] = await Promise.all([
       firestore.collection('users').doc(assignmentInput.userId).get(),
-      firestore.collection('roleDefinitions').doc(String(membership.get('roleKey'))).get(),
+      firestore.collection('roleDefinitions').doc(String(activeMembership.get('roleKey'))).get(),
     ]);
     const permissions = role.get('permissions');
     if (!user.exists || user.get('status') !== 'active' || !Array.isArray(permissions) || !permissions.includes('field.capture') || permissions.includes('workspace.admin')) throw new ProjectSetupRequestError('The selected account is not an eligible field capturer.');
