@@ -1,5 +1,6 @@
 export type BoundaryPoint = Readonly<{ latitude: number; longitude: number }>;
 export type ProjectQuestion = Readonly<{ id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: readonly string[] }>;
+export type ProjectProduct = Readonly<{ brand: string; product: string; active: boolean; displayOrder: number }>;
 
 export class ProjectSetupValidationError extends Error {}
 
@@ -35,7 +36,8 @@ export function validateProjectSetup(input: {
   timeZone?: unknown;
   formTemplateId?: unknown;
   questions?: unknown;
-}): { name: string; areaName: string; boundary: BoundaryPoint[]; areaSquareKm: number; timeZone: string; formTemplateId: 'STANDARD_FMCG' | 'CUSTOM'; questions: ProjectQuestion[] } {
+  productCatalogue?: unknown;
+}): { name: string; areaName: string; boundary: BoundaryPoint[]; areaSquareKm: number; timeZone: string; formTemplateId: 'STANDARD_FMCG' | 'CUSTOM'; questions: ProjectQuestion[]; productCatalogue: ProjectProduct[] } {
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   const areaName = typeof input.areaName === 'string' ? input.areaName.trim() : '';
   if (name.length < 3 || name.length > 100) throw new ProjectSetupValidationError('Project name must contain 3 to 100 characters.');
@@ -57,6 +59,16 @@ export function validateProjectSetup(input: {
     return { id, label, type, required: item.required !== false, options } as ProjectQuestion;
   });
   if (new Set(questions.map((question) => question.id)).size !== questions.length) throw new ProjectSetupValidationError('Question field names must be unique.');
+  const rawProductCatalogue = input.productCatalogue === undefined ? [] : input.productCatalogue;
+  if (!Array.isArray(rawProductCatalogue) || rawProductCatalogue.length > 2000) throw new ProjectSetupValidationError('The product catalogue may contain up to 2,000 products.');
+  const productCatalogue = rawProductCatalogue.map((value, index) => {
+    if (!value || typeof value !== 'object') throw new ProjectSetupValidationError(`Product ${index + 1} is invalid.`);
+    const item = value as Record<string, unknown>; const brand = String(item.brand ?? '').trim(); const product = String(item.product ?? '').trim();
+    if (brand.length < 2 || brand.length > 80 || product.length < 2 || product.length > 120) throw new ProjectSetupValidationError(`Product ${index + 1} needs a valid brand and product name.`);
+    return { brand, product, active: item.active !== false, displayOrder: Number.isFinite(Number(item.displayOrder)) ? Number(item.displayOrder) : index + 1 } as ProjectProduct;
+  });
+  const productKeys = productCatalogue.map((item) => `${item.brand.toLocaleLowerCase()}\u0000${item.product.toLocaleLowerCase()}`);
+  if (new Set(productKeys).size !== productKeys.length) throw new ProjectSetupValidationError('The product catalogue contains duplicate brand and product combinations.');
   if (!Array.isArray(input.boundary) || input.boundary.length < 3 || input.boundary.length > 100) throw new ProjectSetupValidationError('Draw a project boundary with 3 to 100 points.');
 
   const boundary = input.boundary.map((value) => {
@@ -69,7 +81,7 @@ export function validateProjectSetup(input: {
   const areaSquareKm = polygonAreaSquareKm(boundary);
   if (areaSquareKm < 0.002) throw new ProjectSetupValidationError('The project boundary is too small to form a useful capture area.');
   if (areaSquareKm > 100) throw new ProjectSetupValidationError('The development project boundary may not exceed 100 km². Draw a smaller test area.');
-  return { name, areaName, boundary, areaSquareKm, timeZone, formTemplateId, questions };
+  return { name, areaName, boundary, areaSquareKm, timeZone, formTemplateId, questions, productCatalogue };
 }
 
 export function validateProjectAssignment(input: { userId?: unknown; areaName?: unknown }): { userId: string; areaName: string } {
