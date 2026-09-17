@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { fieldApiOrigin, getFieldToken } from '../app/field/map/field-api';
+import { fieldApiOrigin, getFieldToken, getFieldUserLabel } from '../app/field/map/field-api';
 import styles from './ProjectCoverageMap.module.css';
 import storeStyles from './ProjectStoreMarkers.module.css';
 
@@ -142,10 +142,17 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const [controlsHost, setControlsHost] = useState<HTMLDivElement | null>(null);
   const [colourTheme, setColourTheme] = useState<'dark' | 'light'>('dark');
   const [expanded, setExpanded] = useState(false);
+  const [liveUserLabel, setLiveUserLabel] = useState('Signed-in user');
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
   const usesOpenStreetMap = coverage?.streetSegments.some((segment) => segment.geometrySource?.provider === 'openstreetmap') === true;
   const effectiveCoverageVisible = coverageVisible && coverageLayerVisible;
+
+  useEffect(() => {
+    let cancelled = false;
+    void getFieldUserLabel().then((label) => { if (!cancelled) setLiveUserLabel(label); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     currentProjectRef.current = projectId;
@@ -285,9 +292,11 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
             if (typeof locationMarkerRef.current.setPosition === 'function') locationMarkerRef.current.setPosition(position);
             else locationMarkerRef.current.position = position;
           } else if (mapId && maps.marker?.AdvancedMarkerElement) {
-            const pin = document.createElement('div'); pin.className = styles.liveLocationPin ?? ''; pin.innerHTML = '<span></span>';
-            locationMarkerRef.current = new maps.marker.AdvancedMarkerElement({ map, position, title: 'Your live location', zIndex: 30, content: pin });
-          } else locationMarkerRef.current = new maps.Marker({ map, position, title: 'Your live location', zIndex: 30, icon: { path: maps.SymbolPath.CIRCLE, fillColor: '#1479ff', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3, scale: 8 } });
+            const pin = document.createElement('div'); pin.className = styles.liveLocationPin ?? '';
+            const name = document.createElement('strong'); name.textContent = liveUserLabel;
+            const dot = document.createElement('span'); pin.append(name, dot);
+            locationMarkerRef.current = new maps.marker.AdvancedMarkerElement({ map, position, title: `${liveUserLabel} · live location`, zIndex: 30, content: pin });
+          } else locationMarkerRef.current = new maps.Marker({ map, position, title: `${liveUserLabel} · live location`, label: { text: liveUserLabel, color: '#ffffff', fontWeight: '700', fontSize: '12px', className: styles.liveLocationLabel ?? '' }, zIndex: 30, icon: { path: maps.SymbolPath.CIRCLE, fillColor: '#1479ff', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3, scale: 8 }, optimized: false });
           if (!locationAccuracyRef.current) locationAccuracyRef.current = new maps.Circle({ map, center: position, radius: coords.accuracy, strokeColor: '#1479ff', strokeOpacity: .45, strokeWeight: 1, fillColor: '#1479ff', fillOpacity: .1, clickable: false, zIndex: 5 });
           else { locationAccuracyRef.current.setCenter(position); locationAccuracyRef.current.setRadius(coords.accuracy); }
         }, () => undefined, { enableHighAccuracy: true, maximumAge: 5_000, timeout: 20_000 });
@@ -400,7 +409,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, colourTheme, coverage, mapId, projectId, selectedCapturer, variant]);
+  }, [apiKey, colourTheme, coverage, liveUserLabel, mapId, projectId, selectedCapturer, variant]);
 
   useEffect(() => () => {
     zoomListenerRef.current?.remove?.();
