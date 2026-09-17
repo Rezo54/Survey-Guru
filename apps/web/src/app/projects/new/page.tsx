@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import SurveyGuruSidebar from '../../../components/SurveyGuruSidebar';
-import { darkRoadmapStyle, loadGoogleMaps } from '../../../components/ProjectCoverageMap';
+import { darkRoadmapStyle, loadGoogleMaps, loadGooglePlaces } from '../../../components/ProjectCoverageMap';
 import { fieldApiOrigin, getFieldToken } from '../../field/map/field-api';
 import styles from './project-setup.module.css';
 import accessStyles from './admin-access.module.css';
@@ -113,7 +113,8 @@ export default function NewProjectPage() {
       const polygon = new maps.Polygon({ map, paths: [], strokeColor: '#18dda5', strokeOpacity: 1, strokeWeight: 3, fillColor: '#18dda5', fillOpacity: .12, zIndex: 4 });
       mapRef.current = map;
       polygonRef.current = polygon;
-      if (maps.places?.Autocomplete) {
+      void loadGooglePlaces().then(() => {
+        if (cancelled || searchControlRef.current || !maps.places?.Autocomplete) return;
         const control = document.createElement('div');
         control.className = styles.googlePlaceSearch ?? '';
         const icon = document.createElement('span'); icon.textContent = '⌕';
@@ -130,7 +131,7 @@ export default function NewProjectPage() {
           else { map.setCenter(place.geometry.location); map.setZoom(17); }
           setMessage(`Map moved to ${place.formatted_address ?? place.name ?? 'the selected place'}. Tap the map to draw the boundary.`);
         });
-      }
+      }).catch(() => setMessage('The map is ready, but Google Places search is temporarily unavailable.'));
       clickListenerRef.current = map.addListener('click', (event: any) => {
         if (!event.latLng) return;
         setBoundary((current) => {
