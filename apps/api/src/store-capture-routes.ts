@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { createHash } from 'node:crypto';
 import { verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, requireAssignmentScope, requirePermission, requireProjectScope, resolveAuthority } from './authority.js';
 import { getFirebaseAdminServices } from './firebase-admin.js';
@@ -86,10 +87,18 @@ async function verifyStoredPhotos(storage: ReturnType<typeof getFirebaseAdminSer
   const issues: string[] = [];
   for (const photo of photos) {
     try {
-      const [metadata] = await bucket.file(photo.storageObjectPath).getMetadata();
+      const file = bucket.file(photo.storageObjectPath);
+      const [metadata] = await file.getMetadata();
       if (!String(metadata.contentType ?? '').startsWith('image/')) issues.push('Store photo evidence must be an image.');
-      if (!Number.isFinite(Number(metadata.size)) || Number(metadata.size) <= 0) issues.push('Store photo evidence is empty.');
+      const size = Number(metadata.size);
+      if (!Number.isFinite(size) || size <= 0) issues.push('Store photo evidence is empty.');
+      else if (size > 10 * 1024 * 1024) issues.push('Store photo evidence exceeds the 10 MB limit.');
       if (metadata.metadata?.sha256 !== photo.sha256) issues.push('Store photo evidence hash does not match the uploaded object.');
+      else if (size > 0 && size <= 10 * 1024 * 1024) {
+        const [contents] = await file.download();
+        const actualSha256 = createHash('sha256').update(contents).digest('hex');
+        if (actualSha256 !== photo.sha256.toLowerCase()) issues.push('Store photo evidence content failed its integrity check.');
+      }
     } catch {
       issues.push('Store photo evidence could not be verified in authorised storage.');
     }
