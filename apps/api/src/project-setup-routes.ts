@@ -4,6 +4,8 @@ import { verifyRequestIdentity } from './auth.js';
 import { requirePermission, resolveAuthority } from './authority.js';
 import { getFirebaseAdminServices } from './firebase-admin.js';
 import { ProjectSetupValidationError, validateProjectAssignment, validateProjectSetup } from './project-setup.js';
+import { buildOverpassRoadQuery, projectStreetSegmentsFromOverpass, type OverpassResponse } from './osm-street-geometry.js';
+import { parseOptionalBoundary } from './street-coverage-data.js';
 
 type ProjectSetupBody = { name?: unknown; areaName?: unknown; boundary?: unknown };
 type ProjectAssignmentBody = { userId?: unknown; areaName?: unknown };
@@ -13,6 +15,37 @@ export class ProjectSetupRequestError extends Error {
 }
 
 export function registerProjectSetupRoutes(app: FastifyInstance): void {
+  app.post<{ Params: { projectId: string } }>('/api/v1/dev/projects/:projectId/import-streets', async (request) => {
+    if ((process.env.SURVEY_GURU_ENV ?? 'local') !== 'dev') throw new ProjectSetupRequestError('The test street importer is available only in development.');
+    const identity = await verifyRequestIdentity(request);
+    const authority = await resolveAuthority(identity);
+    requirePermission(authority, 'workspace.admin');
+    const { firestore } = getFirebaseAdminServices();
+    const project = await firestore.collection('projects').doc(request.params.projectId).get();
+    if (!project.exists || project.get('workspaceId') !== authority.workspaceId || project.get('environment') !== 'dev') throw new ProjectSetupRequestError('Select a development project in your workspace.');
+    const boundary = parseOptionalBoundary(project.get('boundary'));
+    if (boundary.length < 3) throw new ProjectSetupRequestError('The project has no valid published polygon.');
+    const endpoint = process.env.OVERPASS_API_URL ?? 'https://overpass-api.de/api/interpreter';
+    const maximumSegments = Number(process.env.SURVEY_GURU_MAX_DEV_STREET_SEGMENTS ?? 10_000);
+    if (!endpoint.startsWith('https://')) throw new ProjectSetupRequestError('The configured road provider must use HTTPS.');
+    const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8', 'user-agent': 'Survey-Guru-development-road-import/1.0' }, body: new URLSearchParams({ data: buildOverpassRoadQuery(boundary) }), signal: AbortSignal.timeout(120_000) });
+    if (!response.ok) throw new ProjectSetupRequestError(`The road provider returned HTTP ${response.status}.`);
+    const segments = projectStreetSegmentsFromOverpass({ response: await response.json() as OverpassResponse, workspaceId: authority.workspaceId, projectId: project.id, boundary });
+    if (segments.length === 0) throw new ProjectSetupRequestError('No eligible streets were found inside this polygon.');
+    if (segments.length > maximumSegments) throw new ProjectSetupRequestError(`The polygon contains ${segments.length} street segments, above the ${maximumSegments} development limit. Draw a smaller area or raise SURVEY_GURU_MAX_DEV_STREET_SEGMENTS.`);
+    const importedAt = new Date().toISOString();
+    for (let start = 0; start < segments.length; start += 350) {
+      const batch = firestore.batch();
+      for (const segment of segments.slice(start, start + 350)) {
+        const { id, ...data } = segment;
+        batch.set(firestore.collection('projectStreetSegments').doc(id), { ...data, geometryQuality: 'AUTHORITATIVE_EXTERNAL', attribution: '© OpenStreetMap contributors', licence: 'ODbL-1.0', importedAt, environment: 'dev', verificationStatus: 'UNVERIFIED' }, { merge: true });
+      }
+      await batch.commit();
+    }
+    await firestore.collection('streetGeometryImports').add({ workspaceId: authority.workspaceId, projectId: project.id, provider: 'openstreetmap', segmentCount: segments.length, importedAt, boundaryVersion: project.get('boundaryVersion') ?? null, environment: 'dev', importedBy: identity.uid });
+    return { projectId: project.id, segmentCount: segments.length, initialCoverageState: 'NOT_WALKED', message: `${segments.length} polygon-scoped streets imported. All begin as not walked.` };
+  });
+
   app.get('/api/v1/admin/project-assignment-options', async (request) => {
     const identity = await verifyRequestIdentity(request);
     const authority = await resolveAuthority(identity);
@@ -154,7 +187,7 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
       project: { id: projectId, name: setup.name, status: 'active', boundaryAreaSquareKm: setup.areaSquareKm },
       assignment: { id: assignmentId, areaName: setup.areaName, assignedUserId: identity.uid },
       searchSession: { id: searchSessionId, state: 'READY' },
-      links: { fieldMap: `/field/map?session=${encodeURIComponent(searchSessionId)}`, projectMap: `/projects/${encodeURIComponent(projectId)}/map` },
+      links: { fieldMap: `/field/map?session=${encodeURIComponent(searchSessionId)}`, projectMap: `/projects/demo/map?project=${encodeURIComponent(projectId)}` },
     };
   });
 }
