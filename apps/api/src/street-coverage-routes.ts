@@ -39,11 +39,13 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
     const contributions = contributionSnapshot.docs
       .filter((document) => document.get('workspaceId') === authority.workspaceId && document.get('status') === 'ACCEPTED')
       .map((document) => parseCoverageContribution(document.id, document.data()));
-    const streetSegments = segmentSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId && document.get('eligible') === true).map((document) => {
-      const segment = parseProjectStreetSegment(document.id, document.data());
-      return buildProjectStreetCoverageView({ segment, contributions, policy, verified: document.get('verificationStatus') === 'VERIFIED' });
-    });
+    const eligibleSegmentDocuments = segmentSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId && document.get('eligible') === true);
+    const parsedSegments = eligibleSegmentDocuments.map((document) => parseProjectStreetSegment(document.id, document.data()));
+    const streetSegments = parsedSegments.map((segment, index) => buildProjectStreetCoverageView({ segment, contributions, policy, verified: eligibleSegmentDocuments[index]?.get('verificationStatus') === 'VERIFIED' }));
     const authorisedCaptures = capturesSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId);
+    const administrator = authority.permissions.has('workspace.admin');
+    const scopedCaptures = administrator ? authorisedCaptures : authorisedCaptures.filter((document) => document.get('capturerUserId') === identity.uid);
+    const capturedStoreCount = scopedCaptures.filter((document) => document.get('status') !== 'DRAFT').length;
     const capturerIds = Array.from(new Set(authorisedCaptures.map((document) => document.get('capturerUserId')).filter((value): value is string => typeof value === 'string')));
     const capturerEntries = await Promise.all(capturerIds.map(async (userId) => {
       const user = await firestore.collection('users').doc(userId).get();
@@ -85,6 +87,8 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       const status = String(document.get('status') ?? 'UNKNOWN'); counts.set(status, (counts.get(status) ?? 0) + 1); return counts;
     }, new Map<string, number>()));
     const areaSquareKm = Number(project.get('boundaryAreaSquareKm') ?? 0);
+    const totalRoadMetres = parsedSegments.reduce((total, segment) => total + segment.lengthMetres, 0);
+    const walkedRoadMetres = streetSegments.reduce((total, segment) => total + segment.coveredMetres, 0);
 
     return {
       projectId: project.id,
@@ -106,6 +110,11 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         uncoveredSegments: streetSegments.filter((segment) => segment.coverageState === 'UNCOVERED').length,
         partialSegments: streetSegments.filter((segment) => segment.coverageState === 'PARTIALLY_COVERED').length,
         coveredSegments: streetSegments.filter((segment) => segment.coverageState === 'COVERED' || segment.coverageState === 'VERIFIED').length,
+        totalRoadMetres: Number(totalRoadMetres.toFixed(1)),
+        walkedRoadMetres: Number(walkedRoadMetres.toFixed(1)),
+        walkedPercent: totalRoadMetres > 0 ? Number((walkedRoadMetres / totalRoadMetres * 100).toFixed(1)) : 0,
+        capturedStoreCount,
+        capturedStoreScope: administrator ? 'ALL_PROJECT_USERS' : 'CURRENT_USER',
       },
       authority: { permission: 'coverage.read', workspaceId: authority.workspaceId, projectScoped: true, identityScoped: false },
     };
