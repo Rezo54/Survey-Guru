@@ -219,7 +219,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     return {
       projectId,
       timeZone: typeof project.get('timeZone') === 'string' ? project.get('timeZone') : 'Africa/Johannesburg',
-      form: { templateId: configured?.templateId === 'CUSTOM' ? 'CUSTOM' : 'STANDARD_FMCG', version: configured?.version ?? 1, questions: Array.isArray(configured?.questions) ? configured.questions : [] },
+      form: { templateId: configured?.templateId === 'CUSTOM' ? 'CUSTOM' : 'STANDARD_FMCG', version: configured?.version ?? 1, questions: Array.isArray(configured?.questions) ? configured.questions : [], productCatalogue: Array.isArray(configured?.productCatalogue) ? configured.productCatalogue : [] },
       authority: { permission: 'field.capture', workspaceId: authority.workspaceId, assignmentScoped: true },
     };
   });
@@ -294,7 +294,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     requireProjectScope(authority, request.params.projectId);
     const { firestore, storage } = getFirebaseAdminServices();
     const capture = await firestore.collection('storeCaptures').doc(request.params.captureId).get();
-    if (!capture.exists || capture.get('workspaceId') !== authority.workspaceId || capture.get('projectId') !== request.params.projectId || !['READY_FOR_EXPORT', 'SYNCED'].includes(String(capture.get('status')))) throw new AuthorisationError('Captured store evidence is outside the authorised project scope.');
+    if (!capture.exists || capture.get('workspaceId') !== authority.workspaceId || capture.get('projectId') !== request.params.projectId || !['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(String(capture.get('status')))) throw new AuthorisationError('Captured store evidence is outside the authorised project scope.');
     const photoIndex = Number(request.params.photoIndex);
     const photos = capture.get('photos') as readonly StorePhotoEvidence[] | undefined;
     const photo = Number.isInteger(photoIndex) && photoIndex >= 0 ? photos?.[photoIndex] : undefined;
@@ -585,6 +585,11 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
       if (answer === undefined || answer === null || answer === '') continue;
       if (question.type === 'number' && (typeof answer !== 'number' || !Number.isFinite(answer))) issues.push(`Question ${question.id} requires a valid number.`);
       if (question.type === 'select' && (!Array.isArray(question.options) || !question.options.includes(answer))) issues.push(`Question ${question.id} must use one of the configured selections.`);
+    }
+    const configuredProducts = (project.get('storeCaptureForm') as { productCatalogue?: unknown } | undefined)?.productCatalogue;
+    if (Array.isArray(configuredProducts) && configuredProducts.length && Array.isArray(draft.answers.brandProducts)) {
+      const allowed = new Set(configuredProducts.filter((value) => value && typeof value === 'object' && (value as Record<string, unknown>).active !== false).map((value) => { const item = value as Record<string, unknown>; return `${String(item.brand ?? '').trim().toLocaleLowerCase()}\u0000${String(item.product ?? '').trim().toLocaleLowerCase()}`; }));
+      for (const value of draft.answers.brandProducts) { const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}; const key = `${String(item.brand ?? '').trim().toLocaleLowerCase()}\u0000${String(item.product ?? '').trim().toLocaleLowerCase()}`; if (!allowed.has(key)) issues.push(`Product ${String(item.brand ?? '')} ${String(item.product ?? '')} is not active in this project questionnaire.`); }
     }
     const expectedPrefix = `workspaces/${authority.workspaceId}/projects/${projectId}/captures/${capture.id}/`;
     if (draft.photos.some((photo) => !photo.storageObjectPath.startsWith(expectedPrefix))) issues.push('Photo evidence is outside the authorised capture path.');
