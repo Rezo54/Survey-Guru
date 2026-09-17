@@ -1,0 +1,22 @@
+.queueAction {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.assignmentAction {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .queueAction {
+    grid-column: 1 / -1 !important;
+    width: 100%;
+  }
+
+  .assignmentAction {
+    width: 100%;
+    min-height: 44px;
+  }
+}
