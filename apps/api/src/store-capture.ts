@@ -49,6 +49,7 @@ export type StoreCaptureDraft = Readonly<{
   observedName: string;
   location: StoreLocation;
   selectedExistingStoreId?: string;
+  confirmedNewStore?: boolean;
   answers: Readonly<Record<string, unknown>>;
   photos: readonly StorePhotoEvidence[];
   status: StoreCaptureStatus;
@@ -159,6 +160,7 @@ export function evaluateStoreCapturePreflight(input: Readonly<{
   maximumGpsAccuracyMetres: number;
   identityCandidates: readonly StoreMatchCandidate[];
   selectedExistingStoreId?: string;
+  confirmedNewStore?: boolean;
 }>): StoreCapturePreflightResult {
   const reasons: StoreCapturePreflightReason[] = [];
   if (typeof input.location.accuracyMetres !== 'number' || input.location.accuracyMetres > input.maximumGpsAccuracyMetres) {
@@ -170,11 +172,13 @@ export function evaluateStoreCapturePreflight(input: Readonly<{
   if (!pointIsInsideProjectBoundary(input.location, input.projectBoundary)) {
     reasons.push({ key: 'PROJECT_BOUNDARY', message: 'This location is outside the assigned project area.' });
   }
-  if (input.identityCandidates.length > 0
-    && (!input.selectedExistingStoreId || !input.identityCandidates.some((candidate) => candidate.storeId === input.selectedExistingStoreId))) {
+  const selectedCandidate = Boolean(input.selectedExistingStoreId && input.identityCandidates.some((candidate) => candidate.storeId === input.selectedExistingStoreId));
+  if (input.selectedExistingStoreId && input.confirmedNewStore) {
+    reasons.push({ key: 'IDENTITY', message: 'Choose either an existing store or confirm a new store, not both.' });
+  } else if (input.identityCandidates.length > 0 && !selectedCandidate && !input.confirmedNewStore) {
     reasons.push({
       key: 'IDENTITY',
-      message: 'A store already exists at or near this location. Select the matching store before continuing.',
+      message: 'Stores exist near this location. Select one or confirm that this is a separate new store.',
     });
   }
   return { allowed: reasons.length === 0, reasons, identityCandidates: input.identityCandidates };
@@ -235,6 +239,7 @@ export function evaluateAutomatedStoreQa(input: Readonly<{
   const questionnaireIssues = validateStoreCaptureSubmission(input.draft, input.requiredQuestionIds)
     .filter((issue) => issue.startsWith('Question ') || issue.includes('Store name'));
   const identityResolved = input.identityCandidates.length === 0
+    || input.draft.confirmedNewStore === true
     || (typeof input.draft.selectedExistingStoreId === 'string'
       && input.identityCandidates.some((candidate) => candidate.storeId === input.draft.selectedExistingStoreId));
   const checks: StoreAutomatedQaAssessment['checks'] = [
