@@ -62,6 +62,17 @@ export type StoreMatchCandidate = Readonly<{
   reason: 'SAME_LOCATION_NAME_MATCH' | 'SAME_LOCATION_NAME_CHANGED' | 'NEARBY_POSSIBLE_DUPLICATE';
 }>;
 
+export type StoreCapturePreflightReason = Readonly<{
+  key: 'GPS_ACCURACY' | 'PROJECT_BOUNDARY' | 'IDENTITY';
+  message: string;
+}>;
+
+export type StoreCapturePreflightResult = Readonly<{
+  allowed: boolean;
+  reasons: readonly StoreCapturePreflightReason[];
+  identityCandidates: readonly StoreMatchCandidate[];
+}>;
+
 const transitionTargets: Readonly<Record<StoreCaptureStatus, readonly StoreCaptureStatus[]>> = {
   DRAFT: ['SUBMITTED'],
   SUBMITTED: ['NEEDS_REVIEW', 'VERIFIED', 'REJECTED'],
@@ -76,6 +87,21 @@ function finiteCoordinate(location: StoreLocation): boolean {
   return Number.isFinite(location.latitude) && Number.isFinite(location.longitude)
     && location.latitude >= -90 && location.latitude <= 90
     && location.longitude >= -180 && location.longitude <= 180;
+}
+
+export function pointIsInsideProjectBoundary(location: StoreLocation, boundary: readonly StoreLocation[]): boolean {
+  if (!finiteCoordinate(location) || boundary.length < 3 || boundary.some((point) => !finiteCoordinate(point))) return false;
+  let inside = false;
+  for (let current = 0, previous = boundary.length - 1; current < boundary.length; previous = current, current += 1) {
+    const a = boundary[current];
+    const b = boundary[previous];
+    if (!a || !b) continue;
+    const crossesLatitude = (a.latitude > location.latitude) !== (b.latitude > location.latitude);
+    const longitudeAtLatitude = (b.longitude - a.longitude) * (location.latitude - a.latitude)
+      / (b.latitude - a.latitude) + a.longitude;
+    if (crossesLatitude && location.longitude < longitudeAtLatitude) inside = !inside;
+  }
+  return inside;
 }
 
 function distanceMetres(left: StoreLocation, right: StoreLocation): number {
@@ -125,6 +151,33 @@ export function findStoreIdentityCandidates(input: Readonly<{
     })
     .filter((candidate) => candidate.distanceMetres <= maximumDistance)
     .sort((left, right) => left.distanceMetres - right.distanceMetres || right.nameSimilarity - left.nameSimilarity);
+}
+
+export function evaluateStoreCapturePreflight(input: Readonly<{
+  location: StoreLocation;
+  projectBoundary: readonly StoreLocation[];
+  maximumGpsAccuracyMetres: number;
+  identityCandidates: readonly StoreMatchCandidate[];
+  selectedExistingStoreId?: string;
+}>): StoreCapturePreflightResult {
+  const reasons: StoreCapturePreflightReason[] = [];
+  if (typeof input.location.accuracyMetres !== 'number' || input.location.accuracyMetres > input.maximumGpsAccuracyMetres) {
+    reasons.push({
+      key: 'GPS_ACCURACY',
+      message: `GPS accuracy must be ${input.maximumGpsAccuracyMetres} metres or better before store capture can begin.`,
+    });
+  }
+  if (!pointIsInsideProjectBoundary(input.location, input.projectBoundary)) {
+    reasons.push({ key: 'PROJECT_BOUNDARY', message: 'This location is outside the assigned project area.' });
+  }
+  if (input.identityCandidates.length > 0
+    && (!input.selectedExistingStoreId || !input.identityCandidates.some((candidate) => candidate.storeId === input.selectedExistingStoreId))) {
+    reasons.push({
+      key: 'IDENTITY',
+      message: 'A store already exists at or near this location. Select the matching store before continuing.',
+    });
+  }
+  return { allowed: reasons.length === 0, reasons, identityCandidates: input.identityCandidates };
 }
 
 export function validateStoreCaptureSubmission(draft: StoreCaptureDraft, requiredQuestionIds: readonly string[]): readonly string[] {
