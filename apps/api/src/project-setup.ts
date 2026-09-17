@@ -50,3 +50,11 @@ export function validateProjectSetup(input: {
   if (areaSquareKm > 100) throw new ProjectSetupValidationError('The development project boundary may not exceed 100 km². Draw a smaller test area.');
   return { name, areaName, boundary, areaSquareKm };
 }
+
+export function validateProjectAssignment(input: { userId?: unknown; areaName?: unknown }): { userId: string; areaName: string } {
+  const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
+  const areaName = typeof input.areaName === 'string' ? input.areaName.trim() : '';
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(userId)) throw new ProjectSetupValidationError('Select a valid active capturer.');
+  if (areaName.length < 2 || areaName.length > 100) throw new ProjectSetupValidationError('Capture area name must contain 2 to 100 characters.');
+  return { userId, areaName };
+}
