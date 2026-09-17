@@ -1,5 +1,5 @@
 export type BoundaryPoint = Readonly<{ latitude: number; longitude: number }>;
-export type ProjectQuestion = Readonly<{ id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: readonly string[] }>;
+export type ProjectQuestion = Readonly<{ id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: readonly string[]; additionalRow: boolean }>;
 export type ProjectProduct = Readonly<{ brand: string; product: string; active: boolean; displayOrder: number }>;
 
 export class ProjectSetupValidationError extends Error {}
@@ -56,7 +56,7 @@ export function validateProjectSetup(input: {
     const options = Array.isArray(item.options) ? item.options.map((option) => String(option).trim()).filter(Boolean).slice(0, 30) : [];
     if (!/^[A-Za-z][A-Za-z0-9_]{1,49}$/.test(id) || label.length < 2 || label.length > 100) throw new ProjectSetupValidationError(`Question ${index + 1} needs a valid field name and label.`);
     if (type === 'select' && options.length < 2) throw new ProjectSetupValidationError(`Question ${label} needs at least two selectable options.`);
-    return { id, label, type, required: item.required !== false, options } as ProjectQuestion;
+    return { id, label, type, required: item.required !== false, options, additionalRow: item.additionalRow === true } as ProjectQuestion;
   });
   if (new Set(questions.map((question) => question.id)).size !== questions.length) throw new ProjectSetupValidationError('Question field names must be unique.');
   const rawProductCatalogue = input.productCatalogue === undefined ? [] : input.productCatalogue;
