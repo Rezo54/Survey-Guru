@@ -7,7 +7,7 @@ import { ProjectSetupValidationError, validateProjectAssignment, validateProject
 import { buildOverpassRoadQuery, projectStreetSegmentsFromOverpass, type OverpassResponse } from './osm-street-geometry.js';
 import { parseOptionalBoundary } from './street-coverage-data.js';
 
-type ProjectSetupBody = { name?: unknown; areaName?: unknown; boundary?: unknown; timeZone?: unknown; formTemplateId?: unknown; questions?: unknown };
+type ProjectSetupBody = { name?: unknown; areaName?: unknown; boundary?: unknown; timeZone?: unknown; formTemplateId?: unknown; questions?: unknown; productCatalogue?: unknown };
 type ProjectAssignmentBody = { userId?: unknown; areaName?: unknown };
 
 export class ProjectSetupRequestError extends Error {
@@ -180,7 +180,7 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     batch.create(firestore.collection('projects').doc(projectId), {
       workspaceId: authority.workspaceId, name: setup.name, status: 'active', environment: 'dev', coveragePolicyId,
       timeZone: setup.timeZone,
-      storeCaptureForm: { templateId: setup.formTemplateId, version: 1, questions: setup.questions },
+      storeCaptureForm: { templateId: setup.formTemplateId, version: 1, questions: setup.questions, productCatalogue: setup.productCatalogue },
       storeCaptureRequiredQuestionIds: [...(setup.formTemplateId === 'STANDARD_FMCG' ? ['ownerName', 'brandProducts'] : []), ...setup.questions.filter((question) => question.required).map((question) => question.id)],
       storeQaPolicy: { mode: 'EXCEPTION_ONLY', autoVerifyEnabled: true, manualApprovalBeforeExport: false, maximumGpsAccuracyMetres: 30, minimumPhotoCount: 1, policyVersion: 'store-qa-dev-v1' },
       boundary: setup.boundary, boundaryVersion: `dev-${suffix}`, boundaryAreaSquareKm: setup.areaSquareKm,
