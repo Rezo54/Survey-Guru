@@ -87,7 +87,7 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
     script.id = MAP_SCRIPT_ID;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=marker`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=marker,places`;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Google Maps failed to load.'));
     document.head.appendChild(script);
@@ -113,6 +113,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const storeMarkersRef = useRef<any[]>([]);
   const photoUrlsRef = useRef<string[]>([]);
   const locationMarkerRef = useRef<any>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const placeListenerRef = useRef<any>(null);
   const zoomListenerRef = useRef<any>(null);
   const controlsAttachedRef = useRef(false);
   const coverageSignatureRef = useRef<string | null>(null);
@@ -244,6 +246,17 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
       mapRef.current = map;
+      if (!placeListenerRef.current && searchInputRef.current && maps.places?.Autocomplete) {
+        const autocomplete = new maps.places.Autocomplete(searchInputRef.current, { fields: ['geometry', 'name', 'formatted_address'] });
+        autocomplete.bindTo('bounds', map);
+        placeListenerRef.current = autocomplete.addListener('place_changed', () => {
+          const place = autocomplete.getPlace();
+          if (!place.geometry?.location) return setError('Select a Google Places result to move the map.');
+          if (place.geometry.viewport) map.fitBounds(place.geometry.viewport);
+          else { map.panTo(place.geometry.location); map.setZoom(17); }
+          setError(null);
+        });
+      }
       if (variant !== 'field' && !controlsAttachedRef.current) {
         const controlHost = document.createElement('div');
         map.controls[maps.ControlPosition.TOP_LEFT].push(controlHost);
@@ -341,6 +354,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
 
   useEffect(() => () => {
     zoomListenerRef.current?.remove?.();
+    placeListenerRef.current?.remove?.();
+    placeListenerRef.current = null;
     zoomListenerRef.current = null;
     for (const overlay of overlaysRef.current) { if (typeof overlay.setMap === 'function') overlay.setMap(null); else overlay.map = null; }
     overlaysRef.current = [];
@@ -367,6 +382,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   return <section className={`${styles.frame} ${expanded ? styles.expanded : ''}`} data-variant={variant} data-header={showHeader ? 'true' : 'false'} aria-label="Shared project street coverage map">
     {showHeader ? <div className={styles.header}><div><p>Project-shared street coverage</p><h2>Walked streets and outstanding gaps</h2></div>{coverage ? <span>{coverage.summary.coveredSegments} complete · {coverage.summary.partialSegments} partial · {coverage.summary.uncoveredSegments} outstanding</span> : null}</div> : null}
     {apiKey ? <>
+      <label className={styles.mapSearch}><span>⌕</span><input ref={searchInputRef} type="search" placeholder="Search place, street or address" aria-label="Search Google Maps for a place or street" /></label>
       <div ref={hostRef} className={styles.canvas} />
       {controlsHost && coverageControls ? createPortal(coverageControls, controlsHost) : null}
       {variant === 'field' ? <div className={styles.fieldMapActions} aria-label="Field map actions">
