@@ -9,14 +9,11 @@ import { fieldApiOrigin, getFieldToken } from '../../map/field-api';
 import s from './store-capture.module.css';
 
 type Location = { latitude: number; longitude: number; accuracyMetres: number };
-type DraftResponse = {
-  storeCapture?: {
-    id: string;
-    workspaceId: string;
-    projectId: string;
-    status?: 'DRAFT' | 'SUBMITTED' | 'VERIFIED' | 'READY_FOR_EXPORT';
-    automatedQa?: { outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW' };
-  };
+type IdentityCandidate = { storeId: string; canonicalName: string; distanceMetres: number; reason: 'SAME_LOCATION_NAME_MATCH' | 'SAME_LOCATION_NAME_CHANGED' | 'NEARBY_POSSIBLE_DUPLICATE' };
+type Preflight = { allowed: boolean; reasons: { key: 'GPS_ACCURACY' | 'PROJECT_BOUNDARY' | 'IDENTITY'; message: string }[]; identityCandidates: IdentityCandidate[] };
+type ApiResponse = {
+  storeCapture?: { id: string; workspaceId: string; projectId: string; status?: 'DRAFT' | 'SUBMITTED' | 'VERIFIED' | 'READY_FOR_EXPORT'; automatedQa?: { outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW' } };
+  preflight?: Preflight;
   message?: string;
 };
 
@@ -25,11 +22,20 @@ async function sha256(file: File): Promise<string> {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 
+function candidateDescription(candidate: IdentityCandidate): string {
+  if (candidate.reason === 'SAME_LOCATION_NAME_CHANGED') return `Same location · name may have changed · ${candidate.distanceMetres} m away`;
+  if (candidate.reason === 'SAME_LOCATION_NAME_MATCH') return `Likely the same store · ${candidate.distanceMetres} m away`;
+  return `Possible nearby duplicate · ${candidate.distanceMetres} m away`;
+}
+
 export default function StoreCaptureForm() {
   const searchParams = useSearchParams();
   const assignmentId = searchParams.get('assignment');
   const sessionId = searchParams.get('session');
+  const [storeName, setStoreName] = useState('');
   const [location, setLocation] = useState<Location | null>(null);
+  const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [selectedExistingStoreId, setSelectedExistingStoreId] = useState<string | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [draft, setDraft] = useState<{ id: string; workspaceId: string; projectId: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,41 +46,63 @@ export default function StoreCaptureForm() {
   function locate() {
     if (!navigator.geolocation) return setMessage('Location is not available in this browser.');
     setBusy(true);
+    setPreflight(null);
+    setSelectedExistingStoreId(null);
     setMessage('Checking your current location…');
     navigator.geolocation.getCurrentPosition((position) => {
       setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy });
-      setMessage(`Location ready · accuracy ±${Math.round(position.coords.accuracy)} m`);
+      setMessage(`Location found · accuracy ±${Math.round(position.coords.accuracy)} m. Check eligibility before continuing.`);
       setBusy(false);
     }, (error) => { setMessage(error.message || 'Location could not be read.'); setBusy(false); }, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 15_000 });
   }
 
-  async function request(path: string, method: 'POST' | 'PATCH', body?: unknown): Promise<DraftResponse> {
+  async function request(path: string, method: 'POST' | 'PATCH', body?: unknown): Promise<ApiResponse> {
     const token = await getFieldToken();
     const response = await fetch(`${fieldApiOrigin()}${path}`, {
       method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    const result = await response.json() as DraftResponse;
+    const result = await response.json() as ApiResponse;
     if (!response.ok) throw new Error(result.message ?? 'The store capture could not be saved.');
     return result;
+  }
+
+  async function checkPreflight() {
+    if (!assignmentId) return setMessage('Open store capture from an authorised assignment.');
+    if (!storeName.trim()) return setMessage('Enter the store name first.');
+    if (!location) return setMessage('Use the current store location first.');
+    setBusy(true);
+    setMessage('Checking project area, GPS quality and existing stores…');
+    try {
+      const result = await request(`/api/v1/assignments/${encodeURIComponent(assignmentId)}/store-captures/preflight`, 'POST', {
+        observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}),
+      });
+      if (!result.preflight) throw new Error('The eligibility check was not returned by the server.');
+      setPreflight(result.preflight);
+      setMessage(result.preflight.allowed
+        ? '✓ Location and store identity confirmed. Complete the questionnaire below.'
+        : result.preflight.reasons.map((reason) => reason.message).join(' '));
+    } catch (cause) {
+      setPreflight(null);
+      setMessage(cause instanceof Error ? cause.message : 'The store eligibility check failed.');
+    } finally { setBusy(false); }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!assignmentId) return setMessage('Open store capture from an authorised assignment.');
-    if (!location) return setMessage('Confirm the store location before saving.');
+    if (!location || !preflight?.allowed) return setMessage('Pass the location and identity check before saving.');
     if (!photo) return setMessage('Take or choose a storefront photo before saving.');
     const form = new FormData(event.currentTarget);
-    const observedName = String(form.get('storeName') ?? '').trim();
-    const ownerName = String(form.get('ownerName') ?? '').trim();
-    const stockedBrands = String(form.get('brands') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
-    const product = String(form.get('product') ?? '').trim();
-    const price = Number(form.get('price'));
-    const monthlyVolume = Number(form.get('monthlyVolume'));
-    const answers = { ownerName, stockedBrands, pricing: [{ product, price }], monthlyVolume };
-    const baseBody = { observedName, ...location, answers, photos: [] };
+    const answers = {
+      ownerName: String(form.get('ownerName') ?? '').trim(),
+      stockedBrands: String(form.get('brands') ?? '').split(',').map((value) => value.trim()).filter(Boolean),
+      pricing: [{ product: String(form.get('product') ?? '').trim(), price: Number(form.get('price')) }],
+      monthlyVolume: Number(form.get('monthlyVolume')),
+    };
+    const baseBody = { observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), answers, photos: [] };
     setBusy(true);
-    setMessage('Saving draft…');
+    setMessage('Saving the eligible capture…');
     try {
       let activeDraft = draft;
       if (!activeDraft) {
@@ -91,27 +119,38 @@ export default function StoreCaptureForm() {
       setMessage('Uploading storefront photo…');
       await uploadBytes(ref(storage, storageObjectPath), photo, { contentType: photo.type || 'image/jpeg', customMetadata: { sha256: digest } });
       const photos = [{ storageObjectPath, sha256: digest, capturedAt: new Date().toISOString() }];
-      setMessage('Submitting for verification…');
+      setMessage('Running final automated checks…');
       await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}`, 'PATCH', { ...baseBody, photos });
       const submitted = await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}/submit`, 'POST');
       const submittedCapture = submitted.storeCapture;
       const automatedOutcome = submittedCapture?.automatedQa?.outcome ?? 'MANUAL_REVIEW';
       setReceipt({ captureId: activeDraft.id, status: submittedCapture?.status ?? 'SUBMITTED', automatedOutcome });
       setComplete(true);
-      setMessage(automatedOutcome === 'AUTO_VERIFIED'
-        ? 'Automated checks passed. A supervisor must still give final export approval.'
-        : 'Store sent to human QA because one or more automated checks require review.');
+      setMessage(submittedCapture?.status === 'READY_FOR_EXPORT'
+        ? 'All automated checks passed. The store is ready in the Premier integration queue.'
+        : 'An exceptional issue remains and has been sent to human QA.');
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'The store capture could not be saved.');
     } finally { setBusy(false); }
   }
 
-  if (complete) return <section className={s.success} role="status"><span>✓</span><div><h2>Store submitted to QA</h2><p>{message}</p>{receipt ? <p><strong>Capture reference:</strong> {receipt.captureId}<br/><strong>Current state:</strong> {receipt.status === 'VERIFIED' ? 'Automated verification passed · supervisor approval pending' : 'Human QA review required'}</p> : null}<p>The capturer can continue working. An authorised supervisor reviews this record from the QA page.</p><Link href={`/field/map${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`}>Return to the coverage map</Link></div></section>;
+  if (complete) return <section className={s.success} role="status"><span>✓</span><div><h2>{receipt?.status === 'READY_FOR_EXPORT' ? 'Store captured successfully' : 'Store exception sent to QA'}</h2><p>{message}</p>{receipt ? <p><strong>Capture reference:</strong> {receipt.captureId}<br/><strong>Current state:</strong> {receipt.status === 'READY_FOR_EXPORT' ? 'Ready for Premier integration' : 'Human exception review required'}</p> : null}<p>The capturer can continue working immediately.</p><Link href={`/field/map${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`}>Return to the coverage map</Link></div></section>;
 
   return <form className={s.form} onSubmit={submit}>
-    <section className={s.card}><p className={s.eyebrow}>1 · Identify the outlet</p><label>Store name<input name="storeName" required autoComplete="organization" placeholder="Name shown at the store" /></label><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><p className={s.hint}>If the name has changed, the server can still present same-location stores for identity review without overwriting their history.</p></section>
-    <section className={s.card}><p className={s.eyebrow}>2 · Record what is sold</p><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="number" min="0" step="0.01" inputMode="decimal" placeholder="18.50" /></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
-    <section className={s.card}><p className={s.eyebrow}>3 · Evidence</p><button className={s.secondary} type="button" onClick={locate} disabled={busy}>{location ? 'Refresh store location' : 'Use current store location'}</button>{location ? <p className={s.ready}>✓ Location ready · ±{Math.round(location.accuracyMetres)} m</p> : null}<label>Storefront photo<input required type="file" accept="image/*" capture="environment" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label>{photo ? <p className={s.ready}>✓ {photo.name}</p> : null}</section>
-    <section className={s.submit}><button type="submit" disabled={busy}>{busy ? 'Saving securely…' : 'Submit store for verification'}</button><p>Submission goes to QA first. Third-party export remains blocked until the record is verified and marked ready.</p>{message ? <p className={s.message} role="status">{message}</p> : null}</section>
+    <section className={s.card}>
+      <p className={s.eyebrow}>1 · Confirm this store can be captured</p>
+      <label>Store name<input name="storeName" required autoComplete="organization" placeholder="Name shown at the store" value={storeName} onChange={(event) => { setStoreName(event.target.value); setPreflight(null); setSelectedExistingStoreId(null); }} /></label>
+      <button className={s.secondary} type="button" onClick={locate} disabled={busy}>{location ? 'Refresh store location' : 'Use current store location'}</button>
+      {location ? <p className={s.ready}>Location found · ±{Math.round(location.accuracyMetres)} m</p> : null}
+      {preflight?.identityCandidates.length ? <div className={s.candidates}><strong>Possible existing store found</strong><p>Select it if this is the same physical outlet, even if its name changed.</p>{preflight.identityCandidates.map((candidate) => <button className={candidate.storeId === selectedExistingStoreId ? s.candidateSelected : ''} type="button" key={candidate.storeId} onClick={() => { setSelectedExistingStoreId(candidate.storeId); setMessage('Existing store selected. Check eligibility again to continue.'); }}><b>{candidate.canonicalName}</b><span>{candidateDescription(candidate)}</span></button>)}</div> : null}
+      <button className={s.preflight} type="button" onClick={() => void checkPreflight()} disabled={busy || !location || !storeName.trim()}>{busy ? 'Checking…' : selectedExistingStoreId ? 'Confirm selected store and continue' : 'Check location and existing stores'}</button>
+      {message ? <p className={preflight?.allowed ? s.ready : s.message} role="status">{message}</p> : null}
+    </section>
+
+    {preflight?.allowed ? <>
+      <section className={s.card}><p className={s.eyebrow}>2 · Store details</p><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="number" min="0" step="0.01" inputMode="decimal" placeholder="18.50" /></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
+      <section className={s.card}><p className={s.eyebrow}>3 · Storefront evidence</p><label>Storefront photo<input required type="file" accept="image/*" capture="environment" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label>{photo ? <p className={s.ready}>✓ {photo.name}</p> : null}</section>
+      <section className={s.submit}><button type="submit" disabled={busy}>{busy ? 'Saving securely…' : 'Complete store capture'}</button><p>Clean captures proceed automatically to the Premier integration queue. Only exceptional issues are sent to human QA.</p>{message ? <p className={s.message} role="status">{message}</p> : null}</section>
+    </> : null}
   </form>;
 }
