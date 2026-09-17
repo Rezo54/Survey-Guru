@@ -28,6 +28,7 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [locateRequest, setLocateRequest] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [exportStatuses, setExportStatuses] = useState('');
   const preferencesLoadedRef = useRef(false);
 
@@ -98,6 +99,23 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
     finally { setExporting(false); }
   }
 
+  async function archiveProject() {
+    const project = projects.find((item) => item.id === activeProjectId);
+    if (!project || !window.confirm(`Delete ${project.name} from active projects?\n\nCaptured stores, photos and audit evidence will be retained.`)) return;
+    setArchiving(true);
+    try {
+      const token = await getFieldToken();
+      const response = await fetch(`${fieldApiOrigin()}/api/v1/admin/projects/${encodeURIComponent(project.id)}/archive`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? 'The project could not be deleted.');
+      const remaining = projects.filter((item) => item.id !== project.id);
+      setProjects(remaining);
+      setActiveProjectId(remaining[0]?.id ?? '');
+      window.alert(result.message ?? 'Project deleted from active projects.');
+    } catch (error) { window.alert(error instanceof Error ? error.message : 'The project could not be deleted.'); }
+    finally { setArchiving(false); }
+  }
+
   return <>
     <div className={classes.mapToolbar}>
       <div className={classes.mapTypes}>
@@ -111,11 +129,12 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
         <button type="button" className={coverageLayerVisible ? classes.selected : ''} onClick={() => setCoverageLayerVisible((current) => !current)} aria-pressed={coverageLayerVisible}>▱ Layers</button>
         <button type="button" className={filtersVisible ? classes.selected : ''} onClick={() => setFiltersVisible((current) => !current)} aria-pressed={filtersVisible}>▽ Filter</button>
         <button type="button" onClick={() => setLocateRequest((current) => current + 1)}>⌾ Locate</button>
+        {canCreateProjects ? <button type="button" onClick={() => void archiveProject()} disabled={archiving || !activeProjectId}>{archiving ? 'Deleting…' : 'Delete project'}</button> : null}
         <select aria-label="Store report status" value={exportStatuses} onChange={(event) => setExportStatuses(event.target.value)}><option value="">All store statuses</option><option value="READY_FOR_EXPORT,SYNCED">Correct captures</option><option value="SUBMITTED,NEEDS_REVIEW">In review or redo</option><option value="REJECTED">Rejected stores</option></select>
         <button type="button" onClick={() => void downloadStoreReport()} disabled={exporting}>{exporting ? 'Preparing…' : '⇩ Excel'}</button>
         <button type="button" onClick={(event) => enterFullscreen(event.currentTarget)} aria-label="Open map fullscreen">⛶</button>
       </div>
     </div>
-    <ProjectCoverageMap projectId={activeProjectId} variant="project" showHeader={false} mapType={mapType} coverageLayerVisible={coverageLayerVisible} controlsVisible={filtersVisible} locateRequest={locateRequest} />
+    {activeProjectId ? <ProjectCoverageMap projectId={activeProjectId} variant="project" showHeader={false} mapType={mapType} coverageLayerVisible={coverageLayerVisible} controlsVisible={filtersVisible} locateRequest={locateRequest} /> : <p>No active projects remain. Create a new project area to continue.</p>}
   </>;
 }
