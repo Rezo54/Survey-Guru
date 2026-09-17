@@ -46,6 +46,23 @@ app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/assignme
   return { assignments: snapshot.docs.map((document) => ({ id: document.id, ...document.data() })), authority: { permission: 'assignment.read', workspaceId: authority.workspaceId, projectScoped: true, identityScoped: true } };
 });
 
+app.get('/api/v1/assignments/today', async (request) => {
+  const identity = await verifyRequestIdentity(request);
+  const authority = await resolveAuthority(identity);
+  requirePermission(authority, 'assignment.read');
+  const { firestore } = getFirebaseAdminServices();
+  const snapshot = await firestore.collection('assignments').where('workspaceId', '==', authority.workspaceId).where('assignedUserId', '==', identity.uid).where('status', '==', 'active').get();
+  const authorised = snapshot.docs.filter((document) => authority.assignmentIds.has(document.id) && authority.projectIds.has(document.get('projectId')));
+  const assignments = await Promise.all(authorised.map(async (document) => {
+    const data = document.data() as Record<string, unknown>;
+    const projectId = document.get('projectId');
+    const project = typeof projectId === 'string' ? await firestore.collection('projects').doc(projectId).get() : null;
+    return { id: document.id, ...data, assignedAt: data['assignedAt'], createdAt: data['createdAt'], projectName: project?.exists ? project.get('name') : 'Assigned project' };
+  }));
+  assignments.sort((left, right) => String(right.assignedAt ?? right.createdAt ?? '').localeCompare(String(left.assignedAt ?? left.createdAt ?? '')));
+  return { assignments, authority: { permission: 'assignment.read', workspaceId: authority.workspaceId, identityScoped: true } };
+});
+
 app.post<{ Params: { assignmentId: string } }>('/api/v1/assignments/:assignmentId/search-session', async (request) => {
   const identity = await verifyRequestIdentity(request); const authority = await resolveAuthority(identity); requirePermission(authority, 'field.capture'); requireAssignmentScope(authority, request.params.assignmentId);
   const { firestore } = getFirebaseAdminServices(); const assignment = await firestore.collection('assignments').doc(request.params.assignmentId).get();
