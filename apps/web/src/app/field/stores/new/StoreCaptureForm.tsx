@@ -28,6 +28,13 @@ function candidateDescription(candidate: IdentityCandidate): string {
   return `Possible nearby duplicate · ${candidate.distanceMetres} m away`;
 }
 
+function parsePrice(value: FormDataEntryValue | null): number | null {
+  const normalised = String(value ?? '').trim().replace(/\s/g, '').replace(',', '.');
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalised)) return null;
+  const price = Number(normalised);
+  return Number.isFinite(price) && price >= 0 ? price : null;
+}
+
 export default function StoreCaptureForm() {
   const searchParams = useSearchParams();
   const assignmentId = searchParams.get('assignment');
@@ -105,10 +112,12 @@ export default function StoreCaptureForm() {
     if (!location || !preflight?.allowed) return setMessage('Pass the location and identity check before saving.');
     if (!photo) return setMessage('Take or choose a storefront photo before saving.');
     const form = new FormData(event.currentTarget);
+    const price = parsePrice(form.get('price'));
+    if (price === null) return setMessage('Enter a valid price using a comma or full stop, for example 18,50 or 18.50.');
     const answers = {
       ownerName: String(form.get('ownerName') ?? '').trim(),
       stockedBrands: String(form.get('brands') ?? '').split(',').map((value) => value.trim()).filter(Boolean),
-      pricing: [{ product: String(form.get('product') ?? '').trim(), price: Number(form.get('price')) }],
+      pricing: [{ product: String(form.get('product') ?? '').trim(), price }],
       monthlyVolume: Number(form.get('monthlyVolume')),
     };
     const baseBody = { observedName: storeName.trim(), ...location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), answers, photos: [] };
@@ -159,7 +168,7 @@ export default function StoreCaptureForm() {
     </section>
 
     {preflight?.allowed ? <>
-      <section className={s.card}><p className={s.eyebrow}>2 · Store details</p><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="number" min="0" step="0.01" inputMode="decimal" placeholder="18.50" /></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
+      <section className={s.card}><p className={s.eyebrow}>2 · Store details</p><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><label>Brands stocked<input name="brands" required placeholder="Brand A, Brand B" /></label><div className={s.grid}><label>Product<input name="product" required placeholder="Bread" /></label><label>Price<input name="price" required type="text" inputMode="decimal" autoComplete="off" pattern="[0-9]+([,.][0-9]{1,2})?" title="Use a comma or full stop with up to two decimal places" placeholder="18,50" /><span className={s.inputHint}>Comma or full stop accepted</span></label></div><label>Estimated monthly volume<input name="monthlyVolume" required type="number" min="0" step="1" inputMode="numeric" placeholder="Units per month" /></label></section>
       <section className={s.card}><p className={s.eyebrow}>3 · Storefront evidence</p><label>Storefront photo<input required type="file" accept="image/*" capture="environment" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label>{photo ? <p className={s.ready}>✓ {photo.name}</p> : null}</section>
       <section className={s.submit}><button type="submit" disabled={busy}>{busy ? 'Saving securely…' : 'Complete store capture'}</button><p>Clean captures proceed automatically to the Premier integration queue. Only exceptional issues are sent to human QA.</p>{message ? <p className={s.message} role="status">{message}</p> : null}</section>
     </> : null}
