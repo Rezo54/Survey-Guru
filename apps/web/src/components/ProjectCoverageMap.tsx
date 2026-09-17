@@ -156,8 +156,15 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const loadCoverage = useCallback(async () => {
     try {
       const token = await getFieldToken();
-      const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/street-coverage`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-      const body = await response.json() as CoverageResponse;
+      const endpoint = `${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/street-coverage`;
+      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      const contentType = response.headers.get('content-type') ?? '';
+      const responseText = await response.text();
+      if (!contentType.includes('application/json')) {
+        const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+        throw new Error(`Coverage API returned HTTP ${response.status} from ${host}, but the response was a web page. Check NEXT_PUBLIC_SURVEY_GURU_API_URL and that the API tunnel points to port 8080.`);
+      }
+      const body = JSON.parse(responseText) as CoverageResponse;
       if (!response.ok || !Array.isArray(body.streetSegments)) throw new Error(body.message ?? 'Shared street coverage is unavailable.');
       const signature = coverageSignature(body);
       if (signature !== coverageSignatureRef.current) {
@@ -235,7 +242,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   }, [locateRequest]);
 
   useEffect(() => {
-    if (!apiKey || !hostRef.current || !coverage) return;
+    if (!apiKey || !hostRef.current) return;
     let cancelled = false;
     void loadGoogleMaps(apiKey).then(() => {
       if (cancelled || !hostRef.current || !window.google?.maps) return;
@@ -269,13 +276,13 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       storeMarkersRef.current = [];
       const bounds = new maps.LatLngBounds();
 
-      if (coverage.projectBoundary && coverage.projectBoundary.length >= 3) {
+      if (coverage?.projectBoundary && coverage.projectBoundary.length >= 3) {
         const path = coverage.projectBoundary.map((point) => ({ lat: point.latitude, lng: point.longitude }));
         path.forEach((point) => bounds.extend(point));
         overlaysRef.current.push(new maps.Polygon({ map, paths: path, strokeColor: '#3a9eff', strokeOpacity: .9, strokeWeight: 2, fillColor: '#287cff', fillOpacity: .07, zIndex: 1 }));
       }
 
-      for (const segment of coverage.streetSegments) {
+      for (const segment of coverage?.streetSegments ?? []) {
         const renderSlices = segment.coverageSlices?.length ? segment.coverageSlices : [{ geometry: segment.geometry, colour: segment.coverageColour }];
         for (const slice of renderSlices) {
           const path = slice.geometry.map((point) => ({ lat: point.latitude, lng: point.longitude }));
@@ -288,7 +295,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           roadLinesRef.current.push({ line: roadLine, colour: slice.colour });
         }
       }
-      for (const store of (coverage.capturedStores ?? []).filter((item) => selectedCapturer === 'ALL' || item.capturerUserId === selectedCapturer)) {
+      for (const store of (coverage?.capturedStores ?? []).filter((item) => selectedCapturer === 'ALL' || item.capturerUserId === selectedCapturer)) {
         if (!Number.isFinite(store.location?.latitude) || !Number.isFinite(store.location?.longitude)) continue;
         const position = { lat: store.location.latitude, lng: store.location.longitude };
         bounds.extend(position);
