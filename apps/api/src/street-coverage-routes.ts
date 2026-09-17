@@ -10,7 +10,7 @@ import {
 } from './map-matching.js';
 
 export function registerStreetCoverageRoutes(app: FastifyInstance): void {
-  app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/street-coverage', async (request) => {
+  app.get<{ Params: { projectId: string }; Querystring: { customerScope?: string } }>('/api/v1/projects/:projectId/street-coverage', async (request) => {
     const identity = await verifyRequestIdentity(request);
     const authority = await resolveAuthority(identity);
     requirePermission(authority, 'coverage.read');
@@ -31,10 +31,14 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       coveragePolicyVersion: coveragePolicy.version,
     };
 
+    const administrator = authority.permissions.has('workspace.admin');
+    const allWorkspaceCustomers = request.query.customerScope === 'workspace' && administrator;
     const [segmentSnapshot, contributionSnapshot, capturesSnapshot] = await Promise.all([
       firestore.collection('projectStreetSegments').where('projectId', '==', project.id).get(),
       firestore.collection('streetCoverageContributions').where('projectId', '==', project.id).get(),
-      firestore.collection('storeCaptures').where('projectId', '==', project.id).limit(500).get(),
+      allWorkspaceCustomers
+        ? firestore.collection('storeCaptures').where('workspaceId', '==', authority.workspaceId).limit(5000).get()
+        : firestore.collection('storeCaptures').where('projectId', '==', project.id).limit(500).get(),
     ]);
     const contributions = contributionSnapshot.docs
       .filter((document) => document.get('workspaceId') === authority.workspaceId && document.get('status') === 'ACCEPTED')
@@ -43,7 +47,6 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
     const parsedSegments = eligibleSegmentDocuments.map((document) => parseProjectStreetSegment(document.id, document.data()));
     const streetSegments = parsedSegments.map((segment, index) => buildProjectStreetCoverageView({ segment, contributions, policy, verified: eligibleSegmentDocuments[index]?.get('verificationStatus') === 'VERIFIED' }));
     const authorisedCaptures = capturesSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId);
-    const administrator = authority.permissions.has('workspace.admin');
     const scopedCaptures = administrator ? authorisedCaptures : authorisedCaptures.filter((document) => document.get('capturerUserId') === identity.uid);
     const capturedStoreCount = scopedCaptures.filter((document) => document.get('status') !== 'DRAFT').length;
     const capturerIds = Array.from(new Set(authorisedCaptures.map((document) => document.get('capturerUserId')).filter((value): value is string => typeof value === 'string')));
@@ -62,6 +65,7 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       .filter((document) => ['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
       .map((document) => ({
         captureId: document.id,
+        projectId: document.get('projectId'),
         storeId: document.get('resolvedStoreId'),
         name: document.get('observedName'),
         status: document.get('status'),
@@ -116,7 +120,8 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         capturedStoreCount,
         capturedStoreScope: administrator ? 'ALL_PROJECT_USERS' : 'CURRENT_USER',
       },
-      authority: { permission: 'coverage.read', workspaceId: authority.workspaceId, projectScoped: true, identityScoped: false },
+      authority: { permission: 'coverage.read', workspaceId: authority.workspaceId, projectScoped: true, identityScoped: false, canViewAllCustomers: administrator, canReviewStores: authority.permissions.has('qa.review') },
+      customerScope: allWorkspaceCustomers ? 'ALL_AUTHORISED_PROJECTS' : 'SELECTED_PROJECT',
     };
   });
 }
