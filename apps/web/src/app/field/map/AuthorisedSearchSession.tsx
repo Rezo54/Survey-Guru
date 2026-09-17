@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { createForegroundTracker, type TrackingState } from './foreground-tracker';
 import { useSearchParams } from 'next/navigation';
 import { fieldApiOrigin, getFieldToken } from './field-api';
 import feedbackStyles from './FieldFeedback.module.css';
@@ -17,14 +18,14 @@ type FeedbackTone = 'success' | 'info' | 'warning' | 'danger';
 type FieldFeedback = { title: string; detail: string; tone: FeedbackTone };
 
 function describeMovement(event: MovementEvent, coverage?: CoverageResult): FieldFeedback {
-  if (event.validationStatus === 'REJECTED_DUPLICATE') return { title: 'Location already recorded', detail: 'Nothing was added twice. Keep moving before confirming your progress again.', tone: 'info' };
+  if (event.validationStatus === 'REJECTED_DUPLICATE') return { title: 'Location already recorded', detail: 'No additional movement was counted. Keep walking with tracking active.', tone: 'info' };
   if (event.validationStatus === 'REJECTED_ACCURACY') return { title: 'Location not used', detail: 'The GPS signal was too weak. Move into a clearer area and try again.', tone: 'danger' };
   if (event.validationStatus === 'REJECTED_SPEED') return { title: 'Location not used', detail: 'The movement was too fast to count as walking evidence.', tone: 'danger' };
   if (event.validationStatus !== 'ACCEPTED') return { title: 'Location not used', detail: event.validationReason ?? 'This location could not support street coverage.', tone: 'danger' };
 
   const outcome = coverage?.matchOutcome ?? event.mapMatchStatus;
   if (outcome === 'MATCHED') return { title: 'Street progress confirmed', detail: 'This walked section was matched to the project street and added to shared coverage.', tone: 'success' };
-  if (outcome === 'AWAITING_NEXT_POINT') return { title: 'Location saved', detail: 'Keep walking, then confirm your progress again so the street section can be matched.', tone: 'info' };
+  if (outcome === 'AWAITING_NEXT_POINT') return { title: 'Location saved', detail: 'Keep walking with tracking active so the street section can be matched.', tone: 'info' };
   if (outcome === 'AMBIGUOUS') return { title: 'Street not confirmed yet', detail: 'Nearby streets are too close to distinguish safely. Keep walking on the intended street and try again.', tone: 'warning' };
   if (outcome === 'NO_MATCH') return { title: 'Street not confirmed', detail: 'The location was saved, but it did not match an assigned project street. Continue on the assigned street and try again.', tone: 'warning' };
   if (outcome === 'SKIPPED_UNSUPPORTED_TRAVERSAL') {
@@ -33,7 +34,7 @@ function describeMovement(event: MovementEvent, coverage?: CoverageResult): Fiel
       : 'The location was saved, but more continuous walking evidence is needed before a street can be counted.';
     return { title: 'Location saved — more movement needed', detail, tone: 'warning' };
   }
-  if (outcome === 'RETRY_REQUIRED') return { title: 'Location saved — retry needed', detail: 'The server could not finish matching this point. Keep it queued and try syncing again.', tone: 'danger' };
+  if (outcome === 'RETRY_REQUIRED') return { title: 'Location saved — review needed', detail: 'The server could not finish matching this point. Street coverage is not confirmed for this location.', tone: 'danger' };
   return { title: 'Location saved', detail: 'Your progress is stored and awaiting street confirmation.', tone: 'info' };
 }
 
@@ -55,40 +56,51 @@ export default function AuthorisedSearchSession() {
   const [coverageRefresh, setCoverageRefresh] = useState(0);
   const [feedback, setFeedback] = useState<FieldFeedback | null>(null);
 
-  async function callSession(path = '') {
+  const tracker = useRef<ReturnType<typeof createForegroundTracker> | null>(null);
+  const [tracking, setTracking] = useState<TrackingState>('idle');
+  const [trackingMessage, setTrackingMessage] = useState('Start tracking to record progress while this page is visible.');
+
+  async function callSession(path = '', signal?: AbortSignal) {
     if (!sessionId) throw new Error('Open this map from an authorised Field Today assignment.');
     const token = await getFieldToken();
-    const response = await fetch(`${fieldApiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}${path}`, { method: path ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(`${fieldApiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}${path}`, { method: path ? 'POST' : 'GET', signal: signal ?? null, headers: { Authorization: `Bearer ${token}` } });
     const body = await response.json() as { searchSession?: Session; message?: string };
     if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'Store Coverage Search session unavailable.');
     return body.searchSession;
   }
 
-  async function loadMovement() {
+  async function loadMovement(signal?: AbortSignal) {
     if (!sessionId) return;
     const token = await getFieldToken();
-    const response = await fetch(`${fieldApiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(`${fieldApiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, { signal: signal ?? null, headers: { Authorization: `Bearer ${token}` } });
     const body = await response.json() as { movementEvents?: MovementEvent[]; evidence?: EvidenceSummary; message?: string };
     if (!response.ok) throw new Error(body.message ?? 'Movement evidence unavailable.');
+    if (signal?.aborted) return;
     setMovement(body.movementEvents ?? []);
     setEvidence(body.evidence ?? null);
   }
 
   useEffect(() => {
     let cancelled = false;
+    const request = new AbortController();
+    setSession(null);
+    setMovement([]);
+    setEvidence(null);
+    setFeedback(null);
+    setMessage(null);
     async function load() {
       try {
-        const loaded = await callSession();
+        const loaded = await callSession('', request.signal);
         if (!cancelled) {
           setSession(loaded);
-          await loadMovement();
+          await loadMovement(request.signal);
         }
       } catch (cause) {
         if (!cancelled) setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search session unavailable.');
       }
     }
     void load();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; request.abort(); };
   }, [sessionId]);
 
   async function startSearch() {
@@ -96,7 +108,7 @@ export default function AuthorisedSearchSession() {
     setMessage(null);
     try {
       setSession(await callSession('/start'));
-      setFeedback({ title: 'Search started', detail: 'Walk the assigned streets and confirm your progress as you go.', tone: 'success' });
+      setFeedback({ title: 'Search started', detail: 'Start foreground tracking, then walk the assigned streets with this page visible.', tone: 'success' });
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search could not be started.');
     } finally {
@@ -104,38 +116,52 @@ export default function AuthorisedSearchSession() {
     }
   }
 
-  async function recordLocation() {
-    if (!sessionId || !navigator.geolocation) {
-      setMessage('Foreground location is not available in this browser.');
+  useEffect(() => {
+    setTracking('idle');
+    setTrackingMessage('Start tracking to record progress while this page is visible.');
+    if (!sessionId || session?.id !== sessionId || session.state !== 'ACTIVE_SEARCH') return;
+    if (!navigator.geolocation) {
+      setTrackingMessage('Foreground location is not available in this browser.');
       return;
     }
-    setBusy(true);
-    setMessage('Requesting current foreground location…');
-    navigator.geolocation.getCurrentPosition(async (position) => {
-      try {
+    const controller = createForegroundTracker({
+      geolocation: navigator.geolocation,
+      isAvailable: () => document.visibilityState === 'visible' && navigator.onLine,
+      onState: (state, detail) => { setTracking(state); setTrackingMessage(detail); },
+      submit: async (position, signal) => {
         const token = await getFieldToken();
+        if (signal.aborted) return;
         const response = await fetch(`${fieldApiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, {
-          method: 'POST',
+          method: 'POST', signal,
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ capturedAt: new Date(position.timestamp).toISOString(), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy, source: 'pwa_foreground' }),
         });
         const body = await response.json() as { movementEvent?: MovementEvent; coverage?: CoverageResult; message?: string };
-        if (!response.ok || !body.movementEvent) throw new Error(body.message ?? 'Movement evidence could not be recorded.');
-        setMessage(null);
+        if (signal.aborted) return;
+        if (!response.ok || !body.movementEvent) throw new Error(body.message ?? 'Location upload failed. Check recent progress before restarting tracking.');
         setFeedback(describeMovement(body.movementEvent, body.coverage));
-        await loadMovement();
-        setSession(await callSession());
+        setMovement((previous) => [body.movementEvent!, ...previous].slice(0, 25));
         setCoverageRefresh((value) => value + 1);
-      } catch (cause) {
-        setMessage(cause instanceof Error ? cause.message : 'Movement evidence could not be recorded.');
-      } finally {
-        setBusy(false);
-      }
-    }, (error) => {
-      setMessage(error.message || 'Current location could not be read.');
-      setBusy(false);
-    }, { enableHighAccuracy: true, maximumAge: 15_000, timeout: 15_000 });
-  }
+        await loadMovement(signal);
+        const updated = await callSession('', signal);
+        if (!signal.aborted) setSession(updated);
+      },
+    });
+    tracker.current = controller;
+    const hide = () => { if (document.visibilityState !== 'visible') controller.stop('Tracking stopped while the page was hidden. Start again when ready.'); };
+    const offline = () => controller.stop('Tracking stopped: you are offline. Reconnect, then start again.');
+    const leave = () => controller.stop();
+    document.addEventListener('visibilitychange', hide);
+    window.addEventListener('offline', offline);
+    window.addEventListener('pagehide', leave);
+    return () => {
+      controller.stop();
+      tracker.current = null;
+      document.removeEventListener('visibilitychange', hide);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('pagehide', leave);
+    };
+  }, [sessionId, session?.id, session?.state]);
 
   if (!session) return <section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{message ?? 'Loading authorised session…'}</strong></div></section>;
   const active = session.state === 'ACTIVE_SEARCH';
@@ -150,8 +176,10 @@ export default function AuthorisedSearchSession() {
     <section className={s.action}>
       <p className={s.eyebrow}>Authorised field state</p>
       <h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2>
-      <p>{active ? 'Walk the assigned streets and confirm your progress as you go. Confirmed street coverage is shared with the whole project team.' : 'Start when you are ready to walk the assigned area.'}</p>
-      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={recordLocation} disabled={busy || !active}>{busy && active ? 'Checking location…' : 'Confirm my progress'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
+      <p>{active ? 'Keep this page visible and your screen unlocked while tracking. Confirmed street coverage is shared with the project team.' : 'Start when you are ready to walk the assigned area.'}</p>
+      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={() => tracking === 'tracking' ? tracker.current?.stop() : tracker.current?.start()} disabled={busy || !active || session.id !== sessionId}>{tracking === 'tracking' ? 'Stop tracking' : 'Start foreground tracking'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
+      <p role="status" aria-live="polite">{trackingMessage}</p>
+      <p className={s.subtle}>Foreground tracking needs an internet connection. It stops when you leave this page or lock your screen. Stopping GPS does not end your search session.</p>
       {message ? <p className={s.subtle}>{message}</p> : null}
       {visibleFeedback ? <div className={`${feedbackStyles.captureFeedback} ${feedbackStyles[visibleFeedback.tone]}`} role="status"><span>{feedbackIcon(visibleFeedback.tone)}</span><div><strong>{visibleFeedback.title}</strong><p>{visibleFeedback.detail}</p></div></div> : null}
       {(evidence || traversal) ? <details className={feedbackStyles.technical}><summary>Technical evidence details</summary>{evidence ? <p>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded.</p> : null}{traversal ? <p>Candidate traversal: {traversal.supportedTraversalKm.toFixed(3)} km across {traversal.supportedSegmentCount} supported segment{traversal.supportedSegmentCount === 1 ? '' : 's'} · {traversal.derivationStatus.replaceAll('_', ' ').toLowerCase()}.</p> : null}</details> : null}
