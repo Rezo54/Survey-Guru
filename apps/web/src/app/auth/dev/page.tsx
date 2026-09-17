@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import { signInWithEmailAndPassword, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { useEffect, useState, type FormEvent } from 'react';
+import { getRedirectResult, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut, type User } from 'firebase/auth';
 import { createGoogleAuthProvider, getFirebaseClientAuth } from '../../../lib/firebase-client';
 
 type ApiResult = {
@@ -15,6 +15,19 @@ export default function DevAuthPage() {
   const [message, setMessage] = useState('Not signed in.');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    const auth = getFirebaseClientAuth();
+    if (!auth) return;
+    void getRedirectResult(auth)
+      .then(async (credential) => {
+        if (!credential) return;
+        setBusy(true);
+        await verifyApiIdentity(credential.user);
+      })
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Google redirect sign-in failed.'))
+      .finally(() => setBusy(false));
+  }, []);
 
   async function verifyApiIdentity(user: User) {
     const token = await user.getIdToken();
@@ -33,6 +46,12 @@ export default function DevAuthPage() {
     try {
       const auth = getFirebaseClientAuth();
       if (!auth) throw new Error('Firebase web configuration is missing.');
+      const mobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (mobileBrowser) {
+        setMessage('Opening secure Google sign-in…');
+        await signInWithRedirect(auth, createGoogleAuthProvider());
+        return;
+      }
       const credential = await signInWithPopup(auth, createGoogleAuthProvider());
       await verifyApiIdentity(credential.user);
     } catch (error) {
