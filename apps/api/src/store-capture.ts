@@ -240,6 +240,14 @@ export function resolveStoreQaDecision(from: StoreCaptureStatus, decision: Store
   throw new Error(`QA decision ${decision} is not permitted from ${from}.`);
 }
 
+export function resolvePostSubmissionQaDecision(from: StoreCaptureStatus, decision: StoreQaDecision): StoreQaResolution {
+  if (!['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(from)) throw new Error(`Post-submission QA is not permitted from ${from}.`);
+  if (decision === 'VERIFY') return { finalStatus: from, transitions: [], requiresReason: false };
+  if (decision === 'RETURN_FOR_CORRECTION') return { finalStatus: 'NEEDS_REVIEW', transitions: [{ from, to: 'NEEDS_REVIEW' }], requiresReason: true };
+  if (decision === 'REJECT') return { finalStatus: 'REJECTED', transitions: [{ from, to: 'REJECTED' }], requiresReason: true };
+  throw new Error(`Post-submission QA decision ${decision} is not permitted from ${from}.`);
+}
+
 export function evaluateAutomatedStoreQa(input: Readonly<{
   draft: StoreCaptureDraft;
   requiredQuestionIds: readonly string[];
