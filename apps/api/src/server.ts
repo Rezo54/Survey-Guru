@@ -4,6 +4,7 @@ import { AuthorisationError, requireAssignmentScope, requirePermission, requireP
 import { getFirebaseAdminServices, isFirebaseAdminConfigured } from './firebase-admin.js';
 import { registerStreetCoverageRoutes } from './street-coverage-routes.js';
 import { registerStoreCaptureRoutes, StoreCaptureRequestError } from './store-capture-routes.js';
+import { registerProjectSetupRoutes, ProjectSetupRequestError } from './project-setup-routes.js';
 import { reconcileAcceptedMovementPair, type AcceptedPairResult } from './movement-map-match.js';
 import type { AcceptedMovementPoint } from './map-match-persistence.js';
 
@@ -20,11 +21,13 @@ app.setErrorHandler((error, _request, reply) => {
   if (error instanceof AuthenticationError) return reply.code(error.statusCode).send({ error: 'unauthenticated', message: error.message });
   if (error instanceof AuthorisationError) return reply.code(error.statusCode).send({ error: 'forbidden', message: error.message });
   if (error instanceof StoreCaptureRequestError) return reply.code(error.statusCode).send({ error: 'invalid_store_capture', message: error.message });
+  if (error instanceof ProjectSetupRequestError) return reply.code(error.statusCode).send({ error: 'invalid_project_setup', message: error.message });
   app.log.error(error); return reply.code(500).send({ error: 'internal_error', message: 'The request could not be completed.' });
 });
 
 registerStreetCoverageRoutes(app);
 registerStoreCaptureRoutes(app);
+registerProjectSetupRoutes(app);
 
 app.get('/health', async () => ({ service: 'survey-guru-api', status: 'ok', authority: 'api', firebaseConfigured: isFirebaseAdminConfigured() }));
 app.get('/api/v1/runtime', async () => ({ environment: process.env.SURVEY_GURU_ENV ?? 'local', authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured', protectedBusinessEndpoints: 'project-assignment-search-session-and-movement-authorisation' }));
