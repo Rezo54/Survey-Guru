@@ -6,6 +6,7 @@ import SurveyGuruSidebar from '../../../components/SurveyGuruSidebar';
 import { darkRoadmapStyle, loadGoogleMaps } from '../../../components/ProjectCoverageMap';
 import { fieldApiOrigin, getFieldToken } from '../../field/map/field-api';
 import styles from './project-setup.module.css';
+import accessStyles from './admin-access.module.css';
 
 type Coordinate = { latitude: number; longitude: number };
 type PublishResult = {
@@ -34,6 +35,7 @@ export default function NewProjectPage() {
   const [streetImportBusy, setStreetImportBusy] = useState(false);
   const [streetImportMessage, setStreetImportMessage] = useState('Import the polygon streets before field testing so worked and outstanding roads are both visible.');
   const [options, setOptions] = useState<AssignmentOptions | null>(null);
+  const [adminAccess, setAdminAccess] = useState<'checking' | 'allowed' | 'denied'>('checking');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedCapturerId, setSelectedCapturerId] = useState('');
   const [assignmentAreaName, setAssignmentAreaName] = useState('Test capture area');
@@ -47,7 +49,9 @@ export default function NewProjectPage() {
       const token = await getFieldToken();
       const response = await fetch(`${fieldApiOrigin()}/api/v1/admin/project-assignment-options`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
       const body = await response.json() as AssignmentOptions & { message?: string };
+      if (response.status === 401 || response.status === 403) setAdminAccess('denied');
       if (!response.ok || !Array.isArray(body.projects) || !Array.isArray(body.capturers)) throw new Error(body.message ?? 'Project assignment options are unavailable.');
+      setAdminAccess('allowed');
       setOptions(body);
       setSelectedProjectId((current) => preferredProjectId ?? (current || body.projects[0]?.id || ''));
       setSelectedCapturerId((current) => current || body.capturers[0]?.id || '');
@@ -168,6 +172,8 @@ export default function NewProjectPage() {
     } catch (error) { setStreetImportMessage(error instanceof Error ? error.message : 'The project streets could not be imported.'); }
     finally { setStreetImportBusy(false); }
   }
+
+  if (adminAccess !== 'allowed') return <main className={styles.page}><div className={styles.shell}><SurveyGuruSidebar active="project-map"/><section className={styles.main}><section className={accessStyles.accessCard}><p className={styles.eyebrow}>Project administration</p><h1>{adminAccess === 'checking' ? 'Checking administrator access…' : 'Administrator access required'}</h1><p>{adminAccess === 'checking' ? 'Confirming your workspace role.' : 'Only a workspace administrator can define, publish or assign project areas. Open your assigned work from Field Today.'}</p>{adminAccess === 'denied' ? <Link href="/field">Open Field Today</Link> : null}</section></section></div></main>;
 
   return <main className={styles.page}><div className={styles.shell}>
     <SurveyGuruSidebar active="project-map" />
