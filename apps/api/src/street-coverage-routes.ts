@@ -31,9 +31,10 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       coveragePolicyVersion: coveragePolicy.version,
     };
 
-    const [segmentSnapshot, contributionSnapshot] = await Promise.all([
+    const [segmentSnapshot, contributionSnapshot, capturesSnapshot] = await Promise.all([
       firestore.collection('projectStreetSegments').where('projectId', '==', project.id).get(),
       firestore.collection('streetCoverageContributions').where('projectId', '==', project.id).get(),
+      firestore.collection('storeCaptures').where('projectId', '==', project.id).limit(500).get(),
     ]);
     const contributions = contributionSnapshot.docs
       .filter((document) => document.get('workspaceId') === authority.workspaceId && document.get('status') === 'ACCEPTED')
@@ -42,12 +43,27 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       const segment = parseProjectStreetSegment(document.id, document.data());
       return buildProjectStreetCoverageView({ segment, contributions, policy, verified: document.get('verificationStatus') === 'VERIFIED' });
     });
+    const capturedStores = capturesSnapshot.docs
+      .filter((document) => document.get('workspaceId') === authority.workspaceId && ['READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
+      .map((document) => ({
+        captureId: document.id,
+        storeId: document.get('resolvedStoreId'),
+        name: document.get('observedName'),
+        status: document.get('status'),
+        location: document.get('location'),
+        answers: document.get('answers'),
+        capturerUserId: document.get('capturerUserId'),
+        capturedAt: document.get('submittedAt') ?? document.get('updatedAt'),
+        photoCount: Array.isArray(document.get('photos')) ? document.get('photos').length : 0,
+        exportState: document.get('exportJobId') ? 'QUEUED' : 'NOT_QUEUED',
+      }));
 
     return {
       projectId: project.id,
       ownership: 'PROJECT_SHARED',
       projectBoundary: parseOptionalBoundary(project.get('boundary')),
       streetSegments,
+      capturedStores,
       summary: {
         totalSegments: streetSegments.length,
         uncoveredSegments: streetSegments.filter((segment) => segment.coverageState === 'UNCOVERED').length,
