@@ -12,6 +12,7 @@ type Capture = {
   answers?: Record<string, unknown>;
   photoCount: number;
   submittedAt?: string;
+  projectTimeZone?: string;
   automatedQa?: {
     outcome?: 'AUTO_VERIFIED' | 'MANUAL_REVIEW';
     checks?: { key: string; passed: boolean; message: string }[];
@@ -111,7 +112,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
       <div className={styles.panelHead}><div><p className={styles.eyebrow}>Exception queue</p><h2>Captures needing help</h2></div><button type="button" onClick={() => void loadQueue()} disabled={busy}>Refresh</button></div>
       <p className={styles.statusMessage} role="status">{message}</p>
       <div className={styles.queueList}>{captures.map((capture) => <button className={capture.id === selected?.id ? styles.selected : ''} type="button" key={capture.id} onClick={() => { setSelectedId(capture.id); setReason(''); }}>
-        <span><strong>{capture.observedName}</strong><small>{capture.submittedAt ? new Date(capture.submittedAt).toLocaleString('en-ZA') : 'Submission time unavailable'}</small></span>
+        <span><strong>{capture.observedName}</strong><small>{capture.submittedAt ? `${new Date(capture.submittedAt).toLocaleString('en-ZA', { timeZone: capture.projectTimeZone ?? 'Africa/Johannesburg' })} · ${capture.projectTimeZone ?? 'project time'}` : 'Submission time unavailable'}</small></span>
         <b>{capture.status === 'VERIFIED' ? 'Verified' : 'Needs QA'}</b>
       </button>)}</div>
     </section>
