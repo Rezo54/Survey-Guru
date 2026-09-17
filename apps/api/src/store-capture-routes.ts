@@ -5,6 +5,7 @@ import { AuthorisationError, requireAssignmentScope, requirePermission, requireP
 import { getFirebaseAdminServices } from './firebase-admin.js';
 import {
   evaluateAutomatedStoreQa,
+  evaluateStoreCapturePreflight,
   findStoreIdentityCandidates,
   resolveStoreQaDecision,
   validateStoreCaptureSubmission,
@@ -27,6 +28,7 @@ type DraftBody = {
 };
 
 type QaDecisionBody = { decision?: unknown; reason?: unknown };
+type PreflightBody = Pick<DraftBody, 'observedName' | 'latitude' | 'longitude' | 'accuracyMetres' | 'selectedExistingStoreId'>;
 
 const qaDecisions: readonly StoreQaDecision[] = ['VERIFY', 'VERIFY_AND_READY', 'RETURN_FOR_CORRECTION', 'REJECT', 'MARK_READY_FOR_EXPORT'];
 
@@ -63,6 +65,69 @@ function parsePhotos(value: unknown): readonly StorePhotoEvidence[] {
     }
     return { storageObjectPath: photo.storageObjectPath, sha256: photo.sha256, capturedAt: new Date(photo.capturedAt).toISOString() };
   });
+}
+
+function parseProjectBoundary(value: unknown): readonly StoreLocation[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const point = item as Record<string, unknown>;
+    return finiteNumber(point.latitude) && finiteNumber(point.longitude)
+      ? [{ latitude: point.latitude, longitude: point.longitude }]
+      : [];
+  });
+}
+
+function resolveQaPolicy(value: unknown) {
+  const configured = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+  return {
+    autoVerifyEnabled: configured?.autoVerifyEnabled !== false,
+    manualApprovalBeforeExport: configured?.manualApprovalBeforeExport === true,
+    maximumGpsAccuracyMetres: finiteNumber(configured?.maximumGpsAccuracyMetres) ? configured.maximumGpsAccuracyMetres : 30,
+    minimumPhotoCount: finiteNumber(configured?.minimumPhotoCount) ? Math.max(1, Math.floor(configured.minimumPhotoCount)) : 1,
+  };
+}
+
+async function loadStoreIdentities(firestore: ReturnType<typeof getFirebaseAdminServices>['firestore'], workspaceId: string): Promise<readonly StoreIdentity[]> {
+  const snapshot = await firestore.collection('stores').where('workspaceId', '==', workspaceId).limit(1000).get();
+  return snapshot.docs.map((document) => ({
+    id: document.id,
+    workspaceId: String(document.get('workspaceId') ?? ''),
+    canonicalName: String(document.get('canonicalName') ?? ''),
+    aliases: Array.isArray(document.get('aliases')) ? document.get('aliases') as string[] : [],
+    location: document.get('location') as StoreLocation,
+    dataRights: document.get('dataRights') === 'TASKRAFT_LICENSED_LEGACY' ? 'TASKRAFT_LICENSED_LEGACY' : 'TES_NEW_CAPTURE',
+    ...(typeof document.get('sourceSnapshotId') === 'string' ? { sourceSnapshotId: document.get('sourceSnapshotId') as string } : {}),
+    ...(typeof document.get('licenceScheduleId') === 'string' ? { licenceScheduleId: document.get('licenceScheduleId') as string } : {}),
+  } satisfies StoreIdentity));
+}
+
+async function runStoreCapturePreflight(input: Readonly<{
+  firestore: ReturnType<typeof getFirebaseAdminServices>['firestore'];
+  workspaceId: string;
+  projectId: string;
+  observedName: string;
+  location: StoreLocation;
+  selectedExistingStoreId?: string;
+}>) {
+  const project = await input.firestore.collection('projects').doc(input.projectId).get();
+  if (!project.exists || project.get('workspaceId') !== input.workspaceId) throw new AuthorisationError('Project is outside the authorised scope.');
+  const policy = resolveQaPolicy(project.get('storeQaPolicy'));
+  const stores = await loadStoreIdentities(input.firestore, input.workspaceId);
+  const identityCandidates = findStoreIdentityCandidates({
+    workspaceId: input.workspaceId,
+    observedName: input.observedName,
+    location: input.location,
+    stores,
+  });
+  const assessment = evaluateStoreCapturePreflight({
+    location: input.location,
+    projectBoundary: parseProjectBoundary(project.get('boundary')),
+    maximumGpsAccuracyMetres: policy.maximumGpsAccuracyMetres,
+    identityCandidates,
+    ...(input.selectedExistingStoreId ? { selectedExistingStoreId: input.selectedExistingStoreId } : {}),
+  });
+  return { assessment, policy, project, stores };
 }
 
 async function requireAuthorisedAssignment(request: Parameters<typeof verifyRequestIdentity>[0], assignmentId: string) {
@@ -146,7 +211,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     requireProjectScope(authority, request.params.projectId);
     const { firestore } = getFirebaseAdminServices();
     const snapshot = await firestore.collection('storeCaptures').where('projectId', '==', request.params.projectId).limit(100).get();
-    const reviewable = new Set<StoreCaptureStatus>(['SUBMITTED', 'VERIFIED']);
+    const reviewable = new Set<StoreCaptureStatus>(['SUBMITTED']);
     const storeCaptures = snapshot.docs
       .filter((document) => document.get('workspaceId') === authority.workspaceId && reviewable.has(document.get('status') as StoreCaptureStatus))
       .map((document) => ({
@@ -273,6 +338,29 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     return { storeCapture: { id: updated.id, ...updated.data() }, qaEventId: eventRef.id, authority: { permission: 'qa.review', workspaceId: authority.workspaceId, projectScoped: true } };
   });
 
+  app.post<{ Params: { assignmentId: string }; Body: PreflightBody }>('/api/v1/assignments/:assignmentId/store-captures/preflight', async (request) => {
+    const { authority, firestore, projectId } = await requireAuthorisedAssignment(request, request.params.assignmentId);
+    const observedName = typeof request.body?.observedName === 'string' ? request.body.observedName.trim() : '';
+    if (!observedName) throw new StoreCaptureRequestError('Store name is required before checking the location.');
+    const location = parseLocation(request.body ?? {});
+    const selectedExistingStoreId = typeof request.body?.selectedExistingStoreId === 'string' && request.body.selectedExistingStoreId.trim()
+      ? request.body.selectedExistingStoreId.trim()
+      : undefined;
+    const { assessment, policy } = await runStoreCapturePreflight({
+      firestore,
+      workspaceId: authority.workspaceId,
+      projectId,
+      observedName,
+      location,
+      ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}),
+    });
+    return {
+      preflight: assessment,
+      policy: { maximumGpsAccuracyMetres: policy.maximumGpsAccuracyMetres },
+      authority: { permission: 'field.capture', assignmentScoped: true, projectScoped: true, identityScoped: true },
+    };
+  });
+
   app.post<{ Params: { assignmentId: string }; Body: DraftBody }>('/api/v1/assignments/:assignmentId/store-captures', async (request, reply) => {
     const { identity, authority, firestore, projectId } = await requireAuthorisedAssignment(request, request.params.assignmentId);
     const observedName = typeof request.body?.observedName === 'string' ? request.body.observedName.trim() : '';
@@ -281,10 +369,15 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const answers = parseAnswers(request.body?.answers);
     const photos = parsePhotos(request.body?.photos);
     const selectedExistingStoreId = typeof request.body?.selectedExistingStoreId === 'string' && request.body.selectedExistingStoreId.trim() ? request.body.selectedExistingStoreId.trim() : undefined;
-    if (selectedExistingStoreId) {
-      const existing = await firestore.collection('stores').doc(selectedExistingStoreId).get();
-      if (!existing.exists || existing.get('workspaceId') !== authority.workspaceId) throw new StoreCaptureRequestError('The selected existing store is not available in this workspace.');
-    }
+    const { assessment } = await runStoreCapturePreflight({
+      firestore,
+      workspaceId: authority.workspaceId,
+      projectId,
+      observedName,
+      location,
+      ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}),
+    });
+    if (!assessment.allowed) throw new StoreCaptureRequestError(assessment.reasons.map((reason) => reason.message).join(' '));
     const captureRef = firestore.collection('storeCaptures').doc();
     const now = new Date().toISOString();
     const capture = {
@@ -348,35 +441,70 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     issues.push(...photoIssues);
     if (issues.length > 0) throw new StoreCaptureRequestError(issues.join(' '));
     const submittedAt = new Date().toISOString();
-    const storesSnapshot = await firestore.collection('stores').where('workspaceId', '==', authority.workspaceId).limit(1000).get();
-    const stores = storesSnapshot.docs.map((document) => ({
-      id: document.id,
-      workspaceId: String(document.get('workspaceId') ?? ''),
-      canonicalName: String(document.get('canonicalName') ?? ''),
-      aliases: Array.isArray(document.get('aliases')) ? document.get('aliases') as string[] : [],
-      location: document.get('location') as StoreLocation,
-      dataRights: document.get('dataRights') === 'TASKRAFT_LICENSED_LEGACY' ? 'TASKRAFT_LICENSED_LEGACY' : 'TES_NEW_CAPTURE',
-      ...(typeof document.get('sourceSnapshotId') === 'string' ? { sourceSnapshotId: document.get('sourceSnapshotId') as string } : {}),
-      ...(typeof document.get('licenceScheduleId') === 'string' ? { licenceScheduleId: document.get('licenceScheduleId') as string } : {}),
-    } satisfies StoreIdentity));
+    const stores = await loadStoreIdentities(firestore, authority.workspaceId);
     const identityCandidates = findStoreIdentityCandidates({ workspaceId: authority.workspaceId, observedName: draft.observedName, location: draft.location, stores });
-    const configuredQaPolicy = project.get('storeQaPolicy') as Record<string, unknown> | undefined;
-    const policy = {
-      autoVerifyEnabled: configuredQaPolicy?.autoVerifyEnabled !== false,
-      manualApprovalBeforeExport: configuredQaPolicy?.manualApprovalBeforeExport !== false,
-      maximumGpsAccuracyMetres: finiteNumber(configuredQaPolicy?.maximumGpsAccuracyMetres) ? configuredQaPolicy.maximumGpsAccuracyMetres : 30,
-      minimumPhotoCount: finiteNumber(configuredQaPolicy?.minimumPhotoCount) ? Math.max(1, Math.floor(configuredQaPolicy.minimumPhotoCount)) : 1,
-    };
+    const policy = resolveQaPolicy(project.get('storeQaPolicy'));
     const automatedQa = evaluateAutomatedStoreQa({ draft, requiredQuestionIds, storedPhotoIntegrityVerified: photoIssues.length === 0, identityCandidates, policy });
     const update: Record<string, unknown> = {
-      status: automatedQa.recommendedStatus,
+      status: automatedQa.outcome === 'AUTO_VERIFIED' && !automatedQa.manualApprovalBeforeExport ? 'READY_FOR_EXPORT' : automatedQa.recommendedStatus,
       submittedAt,
       updatedAt: submittedAt,
       identityCandidates,
       automatedQa: { ...automatedQa, assessedAt: submittedAt, policyVersion: 'store-qa-dev-v1' },
     };
     if (automatedQa.recommendedStatus === 'VERIFIED') Object.assign(update, { verifiedAt: submittedAt, verifiedBy: 'AUTOMATED_QA' });
-    await capture.ref.update(update);
+    if (automatedQa.outcome === 'AUTO_VERIFIED' && !automatedQa.manualApprovalBeforeExport) {
+      const selectedExistingStoreId = draft.selectedExistingStoreId;
+      const newStoreRef = firestore.collection('stores').doc();
+      const exportJobRef = firestore.collection('storeExportJobs').doc();
+      await firestore.runTransaction(async (transaction) => {
+        const current = await transaction.get(capture.ref);
+        if (!current.exists || (current.get('status') !== 'DRAFT' && current.get('status') !== 'NEEDS_REVIEW')) {
+          throw new StoreCaptureRequestError('Only a draft or corrected capture can enter the integration queue.');
+        }
+        let resolvedStoreId: string;
+        if (selectedExistingStoreId) {
+          const existingStoreRef = firestore.collection('stores').doc(selectedExistingStoreId);
+          const existingStore = await transaction.get(existingStoreRef);
+          if (!existingStore.exists || existingStore.get('workspaceId') !== authority.workspaceId) throw new AuthorisationError('The selected store identity is outside the authorised scope.');
+          resolvedStoreId = existingStore.id;
+        } else {
+          resolvedStoreId = newStoreRef.id;
+          transaction.create(newStoreRef, {
+            workspaceId: authority.workspaceId,
+            canonicalName: draft.observedName,
+            aliases: [],
+            location: draft.location,
+            dataRights: 'TES_NEW_CAPTURE',
+            status: 'active',
+            createdFromCaptureId: capture.id,
+            verifiedAt: submittedAt,
+            verifiedBy: 'AUTOMATED_QA',
+            environment: process.env.SURVEY_GURU_ENV ?? 'local',
+          });
+        }
+        Object.assign(update, {
+          readyForExportAt: submittedAt,
+          readyForExportBy: 'INTEGRATION_POLICY',
+          resolvedStoreId,
+          exportJobId: exportJobRef.id,
+        });
+        transaction.update(capture.ref, update);
+        transaction.create(exportJobRef, {
+          workspaceId: authority.workspaceId,
+          projectId,
+          storeCaptureId: capture.id,
+          storeId: resolvedStoreId,
+          destination: 'PREMIER',
+          state: 'PENDING',
+          createdAt: submittedAt,
+          createdBy: 'INTEGRATION_POLICY',
+          environment: process.env.SURVEY_GURU_ENV ?? 'local',
+        });
+      });
+    } else {
+      await capture.ref.update(update);
+    }
     const updated = await capture.ref.get();
     return { storeCapture: { id: updated.id, ...updated.data() }, authority: { permission: 'field.capture', workspaceId: authority.workspaceId, identityScoped: true } };
   });
