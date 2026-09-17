@@ -14,6 +14,11 @@ type PublishResult = {
   searchSession: { id: string; state: string };
   links: { fieldMap: string };
 };
+type AssignmentOptions = {
+  projects: Array<{ id: string; name: string; boundaryAreaSquareKm: number | null; publishedAt: string | null }>;
+  capturers: Array<{ id: string; email: string; roleKey: string; roleName: string }>;
+};
+type AssignmentResult = { project: { id: string; name: string }; capturer: { id: string; email: string }; assignment: { id: string; areaName: string }; searchSession: { id: string; state: string }; links: { fieldMap: string } };
 
 export default function NewProjectPage() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -26,7 +31,31 @@ export default function NewProjectPage() {
   const [message, setMessage] = useState('Tap the map to draw at least three boundary points.');
   const [busy, setBusy] = useState(false);
   const [published, setPublished] = useState<PublishResult | null>(null);
+  const [options, setOptions] = useState<AssignmentOptions | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedCapturerId, setSelectedCapturerId] = useState('');
+  const [assignmentAreaName, setAssignmentAreaName] = useState('Test capture area');
+  const [assignmentMessage, setAssignmentMessage] = useState('Loading active projects and eligible capturers…');
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
+  const [assigned, setAssigned] = useState<AssignmentResult | null>(null);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  async function loadAssignmentOptions(preferredProjectId?: string) {
+    try {
+      const token = await getFieldToken();
+      const response = await fetch(`${fieldApiOrigin()}/api/v1/admin/project-assignment-options`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      const body = await response.json() as AssignmentOptions & { message?: string };
+      if (!response.ok || !Array.isArray(body.projects) || !Array.isArray(body.capturers)) throw new Error(body.message ?? 'Project assignment options are unavailable.');
+      setOptions(body);
+      setSelectedProjectId((current) => preferredProjectId ?? (current || body.projects[0]?.id || ''));
+      setSelectedCapturerId((current) => current || body.capturers[0]?.id || '');
+      setAssignmentMessage(body.capturers.length ? 'Select a project and field capturer.' : 'No eligible non-admin field capturer is registered in this workspace.');
+    } catch (error) {
+      setAssignmentMessage(error instanceof Error ? error.message : 'Project assignment options are unavailable.');
+    }
+  }
+
+  useEffect(() => { void loadAssignmentOptions(); }, []);
 
   function syncPolygon(points: Coordinate[]) {
     setBoundary(points);
@@ -94,10 +123,33 @@ export default function NewProjectPage() {
       if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'The test project could not be published.');
       setPublished(body);
       setMessage('Project published. Your capture assignment is ready.');
+      await loadAssignmentOptions(body.project.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The test project could not be published.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function assignCapturer() {
+    if (!selectedProjectId || !selectedCapturerId) return;
+    setAssignmentBusy(true);
+    setAssigned(null);
+    setAssignmentMessage('Creating the capturer assignment and field session…');
+    try {
+      const token = await getFieldToken();
+      const response = await fetch(`${fieldApiOrigin()}/api/v1/admin/projects/${encodeURIComponent(selectedProjectId)}/assign`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedCapturerId, areaName: assignmentAreaName }),
+      });
+      const body = await response.json() as AssignmentResult & { message?: string };
+      if (!response.ok || !body.assignment) throw new Error(body.message ?? 'The capturer could not be assigned.');
+      setAssigned(body);
+      setAssignmentMessage(`${body.capturer.email} can now open ${body.project.name}.`);
+    } catch (error) {
+      setAssignmentMessage(error instanceof Error ? error.message : 'The capturer could not be assigned.');
+    } finally {
+      setAssignmentBusy(false);
     }
   }
 
@@ -121,6 +173,17 @@ export default function NewProjectPage() {
           <small>This development shortcut assigns the publishing administrator as capturer for this test. Production setup will keep administrator and field roles separate.</small>
         </section>
       </div>
+      <section className={styles.assignmentCard}>
+        <div><p className={styles.eyebrow}>Administrator handoff</p><h2>Assign a project to a field capturer</h2><p>The capturer receives project membership, one active assignment and a ready field session. Workspace-administrator accounts are excluded from this list.</p></div>
+        <div className={styles.assignmentForm}>
+          <label>Active project<select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}><option value="">Select project</option>{options?.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+          <label>Field capturer<select value={selectedCapturerId} onChange={(event) => setSelectedCapturerId(event.target.value)}><option value="">Select capturer</option>{options?.capturers.map((capturer) => <option key={capturer.id} value={capturer.id}>{capturer.email} · {capturer.roleName}</option>)}</select></label>
+          <label>Assigned area name<input value={assignmentAreaName} onChange={(event) => setAssignmentAreaName(event.target.value)} /></label>
+          <button className={styles.publish} type="button" onClick={assignCapturer} disabled={assignmentBusy || !selectedProjectId || !selectedCapturerId || assignmentAreaName.trim().length < 2}>{assignmentBusy ? 'Assigning…' : 'Assign project to capturer'}</button>
+        </div>
+        <p className={styles.message} role="status">{assignmentMessage}</p>
+        {assigned ? <div className={styles.success}><strong>Assignment ready</strong><span>{assigned.capturer.email} · {assigned.assignment.areaName}</span><span>The capturer must sign in with this account, then open their assignment link.</span><Link href={assigned.links.fieldMap}>Preview authorised field session →</Link></div> : null}
+      </section>
     </section>
   </div></main>;
 }
