@@ -31,7 +31,11 @@ async function authorisedFetch(path: string, init?: RequestInit): Promise<Respon
 
 function displayValue(value: unknown): string {
   if (Array.isArray(value)) return value.map(displayValue).join(', ');
-  if (value && typeof value === 'object') return JSON.stringify(value);
+  if (value && typeof value === 'object') {
+    const item = value as Record<string, unknown>;
+    if (typeof item.product === 'string' && typeof item.price === 'number') return `${item.product} · R${item.price.toFixed(2)}`;
+    return Object.entries(item).map(([key, nested]) => `${key}: ${displayValue(nested)}`).join(' · ');
+  }
   return String(value ?? 'Not answered');
 }
 
@@ -41,11 +45,13 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('Loading the authorised QA queue…');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const selected = captures.find((capture) => capture.id === selectedId) ?? captures[0] ?? null;
 
   const loadQueue = useCallback(async () => {
     setBusy(true);
+    setLoadFailed(false);
     try {
       const response = await authorisedFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/store-captures/qa`);
       const result = await response.json() as QueueResponse;
@@ -54,7 +60,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
       setCaptures(next);
       setSelectedId((current) => current && next.some((capture) => capture.id === current) ? current : next[0]?.id ?? null);
       setMessage(next.length ? `${next.length} store capture${next.length === 1 ? '' : 's'} awaiting action.` : 'The store QA queue is clear.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'The QA queue could not be loaded.'); }
+    } catch (error) { setLoadFailed(true); setMessage(error instanceof Error ? error.message : 'The QA queue could not be loaded.'); }
     finally { setBusy(false); }
   }, [projectId]);
 
@@ -102,7 +108,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
 
   return <div className={styles.qaGrid}>
     <section className={styles.queuePanel}>
-      <div className={styles.panelHead}><div><p className={styles.eyebrow}>Live review queue</p><h2>Submitted stores</h2></div><button type="button" onClick={() => void loadQueue()} disabled={busy}>Refresh</button></div>
+      <div className={styles.panelHead}><div><p className={styles.eyebrow}>Exception queue</p><h2>Captures needing help</h2></div><button type="button" onClick={() => void loadQueue()} disabled={busy}>Refresh</button></div>
       <p className={styles.statusMessage} role="status">{message}</p>
       <div className={styles.queueList}>{captures.map((capture) => <button className={capture.id === selected?.id ? styles.selected : ''} type="button" key={capture.id} onClick={() => { setSelectedId(capture.id); setReason(''); }}>
         <span><strong>{capture.observedName}</strong><small>{capture.submittedAt ? new Date(capture.submittedAt).toLocaleString('en-ZA') : 'Submission time unavailable'}</small></span>
@@ -111,7 +117,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
     </section>
 
     <section className={styles.reviewPanel}>
-      {!selected ? <div className={styles.empty}><strong>No store captures need QA.</strong><span>New submissions will appear here after refresh.</span></div> : <>
+      {!selected ? <div className={styles.empty}><strong>{loadFailed ? 'The exception queue could not be opened.' : 'No store captures need QA.'}</strong><span>{loadFailed ? 'Check that this signed-in account has the qa.review permission.' : 'Clean captures bypass this queue and proceed to integration automatically.'}</span></div> : <>
         <div className={styles.reviewHead}><div><p className={styles.eyebrow}>Selected store</p><h2>{selected.observedName}</h2></div><span className={selected.status === 'VERIFIED' ? styles.verified : styles.pending}>{selected.status === 'VERIFIED' ? 'Verified' : 'Awaiting QA'}</span></div>
         <div className={styles.evidence}>{photoUrl ? <img src={photoUrl} alt={`Storefront evidence for ${selected.observedName}`} /> : <div>Loading protected photo evidence…</div>}</div>
         <dl className={styles.details}>
@@ -131,7 +137,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
           <button type="button" onClick={() => void decide('RETURN_FOR_CORRECTION')} disabled={busy}>Return for correction</button>
           {selected.status === 'SUBMITTED' ? <button className={styles.reject} type="button" onClick={() => void decide('REJECT')} disabled={busy}>Reject</button> : null}
         </div>
-        <p className={styles.guardrail}>“Verify only” keeps third-party export blocked. “Verify &amp; make export-ready” records both governed transitions in one audited action.</p>
+        <p className={styles.guardrail}>This queue contains exceptions only. Resolving one records the human decision and audit history before integration can continue.</p>
       </>}
     </section>
   </div>;
