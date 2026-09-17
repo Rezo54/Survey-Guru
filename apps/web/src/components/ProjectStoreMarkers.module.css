@@ -14,14 +14,20 @@
 .storePopup {
   display: grid;
   gap: 5px;
-  min-width: 220px;
-  max-width: 320px;
+  width: max-content;
+  min-width: min(180px, 65vw);
+  max-width: min(420px, 78vw);
   padding: 4px;
   color: #092019;
 }
 
 .storePopup strong { font-size: 1rem; }
 .storePopup span { color: #365b54; font-size: .75rem; }
+.productSales { display: grid; gap: 5px; margin-top: 4px; }
+.productSales summary { width: max-content; cursor: pointer; color: #0a654d; font-size: .78rem; font-weight: 800; list-style: none; }
+.productSales summary::-webkit-details-marker { display: none; }
+.productSales[open] summary { margin-bottom: 3px; }
+.productSales span { display: block; max-width: 390px; white-space: normal; }
 
 .storeGallery {
   display: flex;
