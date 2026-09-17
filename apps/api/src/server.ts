@@ -33,6 +33,20 @@ app.get('/health', async () => ({ service: 'survey-guru-api', status: 'ok', auth
 app.get('/api/v1/runtime', async () => ({ environment: process.env.SURVEY_GURU_ENV ?? 'local', authentication: isFirebaseAdminConfigured() ? 'firebase-admin-configured' : 'not-configured', protectedBusinessEndpoints: 'project-assignment-search-session-and-movement-authorisation' }));
 app.get('/api/v1/me', async (request) => { const identity = await verifyRequestIdentity(request); const authority = await resolveAuthority(identity); return { identity, authority: { status: 'authorised', workspaceMembership: { id: authority.membershipId, workspaceId: authority.workspaceId, roleKey: authority.roleKey }, permissions: [...authority.permissions], projectIds: [...authority.projectIds], assignmentIds: [...authority.assignmentIds], resourceScope: 'workspace' } }; });
 
+app.get('/api/v1/projects/active', async (request) => {
+  const identity = await verifyRequestIdentity(request);
+  const authority = await resolveAuthority(identity);
+  requirePermission(authority, 'project.read');
+  const { firestore } = getFirebaseAdminServices();
+  const snapshot = await firestore.collection('projects').where('workspaceId', '==', authority.workspaceId).where('status', '==', 'active').get();
+  const administrator = authority.permissions.has('workspace.admin');
+  const projects = snapshot.docs
+    .filter((document) => administrator || authority.projectIds.has(document.id))
+    .map((document) => ({ id: document.id, name: document.get('name') ?? document.id, status: document.get('status'), publishedAt: document.get('publishedAt') ?? null, boundaryAreaSquareKm: document.get('boundaryAreaSquareKm') ?? null }))
+    .sort((left, right) => String(right.publishedAt ?? '').localeCompare(String(left.publishedAt ?? '')));
+  return { projects, selectedProjectIds: projects.map((project) => project.id), authority: { canCreateProjects: administrator, projectScoped: !administrator, workspaceId: authority.workspaceId } };
+});
+
 app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/summary', async (request) => {
   const identity = await verifyRequestIdentity(request); const authority = await resolveAuthority(identity); requirePermission(authority, 'project.read'); requireProjectScope(authority, request.params.projectId);
   const { firestore } = getFirebaseAdminServices(); const project = await firestore.collection('projects').doc(request.params.projectId).get();
