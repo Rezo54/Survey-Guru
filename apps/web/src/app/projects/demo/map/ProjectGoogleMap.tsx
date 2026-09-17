@@ -35,7 +35,7 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt += 1) try {
         const token = await getFieldToken();
         const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/active`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
         const body = await response.json() as { projects?: ActiveProject[]; authority?: { canCreateProjects?: boolean }; message?: string };
@@ -46,7 +46,10 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
         const saved = window.sessionStorage.getItem('survey-guru:active-project');
         const next = body.projects.some((project) => project.id === projectId) ? projectId : saved && body.projects.some((project) => project.id === saved) ? saved : body.projects[0]?.id;
         if (next) setActiveProjectId(next);
-      } catch { if (!cancelled) setProjects([]); }
+        return;
+      } catch {
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+      }
     })();
     return () => { cancelled = true; };
   }, [projectId]);
