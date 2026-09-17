@@ -1,0 +1,6 @@
+.correctionPill { border: 1px solid #a86813; background: #3b2a0e; color: #ffc55a; border-radius: 999px; padding: 6px 9px; font-size: .63rem; }
+.correction { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px; border: 1px solid #80591a; border-radius: 10px; background: #2b210f; }
+.correction strong, .correction span { display: block; }
+.correction span { color: #d6b97b; font-size: .67rem; margin-top: 4px; }
+.correction a { border-radius: 9px; background: #f3b333; color: #241600; padding: 10px 13px; text-decoration: none; font-weight: 850; white-space: nowrap; }
+@media (max-width: 720px) { .correction { grid-template-columns: 1fr; } .correction a { width: 100%; text-align: center; } }
