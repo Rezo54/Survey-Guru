@@ -42,6 +42,10 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function localProjectTimestamp(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+}
+
 function parseLocation(body: DraftBody): StoreLocation {
   if (!finiteNumber(body.latitude) || body.latitude < -90 || body.latitude > 90 || !finiteNumber(body.longitude) || body.longitude < -180 || body.longitude > 180) {
     throw new StoreCaptureRequestError('Valid store coordinates are required.');
@@ -208,6 +212,18 @@ async function verifyStoredPhotos(storage: ReturnType<typeof getFirebaseAdminSer
 }
 
 export function registerStoreCaptureRoutes(app: FastifyInstance): void {
+  app.get<{ Params: { assignmentId: string } }>('/api/v1/assignments/:assignmentId/store-capture-form', async (request) => {
+    const { authority, firestore, projectId } = await requireAuthorisedAssignment(request, request.params.assignmentId);
+    const project = await firestore.collection('projects').doc(projectId).get();
+    const configured = project.get('storeCaptureForm') as Record<string, unknown> | undefined;
+    return {
+      projectId,
+      timeZone: typeof project.get('timeZone') === 'string' ? project.get('timeZone') : 'Africa/Johannesburg',
+      form: { templateId: configured?.templateId === 'CUSTOM' ? 'CUSTOM' : 'STANDARD_FMCG', version: configured?.version ?? 1, questions: Array.isArray(configured?.questions) ? configured.questions : [] },
+      authority: { permission: 'field.capture', workspaceId: authority.workspaceId, assignmentScoped: true },
+    };
+  });
+
   app.get<{ Params: { projectId: string }; Querystring: { status?: string; capturer?: string } }>('/api/v1/projects/:projectId/store-captures/export.xlsx', async (request, reply) => {
     const identity = await verifyRequestIdentity(request);
     const authority = await resolveAuthority(identity);
@@ -239,6 +255,8 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
         capturer: capturers.get(String(document.get('capturerUserId'))) ?? document.get('capturerUserId') ?? '',
         capturerUserId: document.get('capturerUserId') ?? '',
         capturedAt: document.get('submittedAt') ?? document.get('updatedAt') ?? '',
+        capturedLocalTime: document.get('submittedLocalTime') ?? '',
+        projectTimeZone: document.get('projectTimeZone') ?? '',
         latitude: location?.latitude ?? '',
         longitude: location?.longitude ?? '',
         accuracyMetres: location?.accuracyMetres ?? '',
@@ -315,6 +333,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
         automatedQa: document.get('automatedQa'),
         capturerUserId: document.get('capturerUserId'),
         submittedAt: document.get('submittedAt'),
+        projectTimeZone: document.get('projectTimeZone') ?? 'Africa/Johannesburg',
         updatedAt: document.get('updatedAt'),
       }))
       .sort((left, right) => String(left.submittedAt ?? left.updatedAt).localeCompare(String(right.submittedAt ?? right.updatedAt)));
@@ -457,6 +476,8 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
       ? request.body.selectedExistingStoreId.trim()
       : undefined;
     const confirmedNewStore = request.body?.confirmedNewStore === true;
+    const project = await firestore.collection('projects').doc(projectId).get();
+    const projectTimeZone = typeof project.get('timeZone') === 'string' ? project.get('timeZone') : 'Africa/Johannesburg';
     const { assessment, policy } = await runStoreCapturePreflight({
       firestore,
       workspaceId: authority.workspaceId,
@@ -492,12 +513,14 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
       ...(confirmedNewStore ? { confirmedNewStore: true } : {}),
     });
     if (!assessment.allowed) throw new StoreCaptureRequestError(assessment.reasons.map((reason) => reason.message).join(' '));
+    const project = await firestore.collection('projects').doc(projectId).get();
+    const projectTimeZone = typeof project.get('timeZone') === 'string' ? project.get('timeZone') : 'Africa/Johannesburg';
     const captureRef = firestore.collection('storeCaptures').doc();
     const now = new Date().toISOString();
     const capture = {
       workspaceId: authority.workspaceId, projectId, assignmentId: request.params.assignmentId, capturerUserId: identity.uid,
       observedName, location, ...(selectedExistingStoreId ? { selectedExistingStoreId } : {}), ...(confirmedNewStore ? { confirmedNewStore: true } : {}), answers, photos,
-      status: 'DRAFT' as const, dataRights: 'TES_NEW_CAPTURE' as const, createdAt: now, updatedAt: now,
+      status: 'DRAFT' as const, dataRights: 'TES_NEW_CAPTURE' as const, projectTimeZone, createdAt: now, updatedAt: now,
       environment: process.env.SURVEY_GURU_ENV ?? 'local',
     };
     await captureRef.create(capture);
@@ -552,12 +575,24 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
       status: data.status as StoreCaptureDraft['status'],
     };
     const issues = [...validateStoreCaptureSubmission(draft, requiredQuestionIds)];
+    const formConfiguration = project.get('storeCaptureForm') as { questions?: unknown } | undefined;
+    const configuredFormQuestions = Array.isArray(formConfiguration?.questions) ? formConfiguration.questions : [];
+    for (const value of configuredFormQuestions) {
+      if (!value || typeof value !== 'object') continue;
+      const question = value as { id?: unknown; type?: unknown; options?: unknown };
+      if (typeof question.id !== 'string') continue;
+      const answer = draft.answers[question.id];
+      if (answer === undefined || answer === null || answer === '') continue;
+      if (question.type === 'number' && (typeof answer !== 'number' || !Number.isFinite(answer))) issues.push(`Question ${question.id} requires a valid number.`);
+      if (question.type === 'select' && (!Array.isArray(question.options) || !question.options.includes(answer))) issues.push(`Question ${question.id} must use one of the configured selections.`);
+    }
     const expectedPrefix = `workspaces/${authority.workspaceId}/projects/${projectId}/captures/${capture.id}/`;
     if (draft.photos.some((photo) => !photo.storageObjectPath.startsWith(expectedPrefix))) issues.push('Photo evidence is outside the authorised capture path.');
     const photoIssues = await verifyStoredPhotos(storage, draft.photos);
     issues.push(...photoIssues);
     if (issues.length > 0) throw new StoreCaptureRequestError(issues.join(' '));
     const submittedAt = new Date().toISOString();
+    const projectTimeZone = typeof project.get('timeZone') === 'string' ? project.get('timeZone') : 'Africa/Johannesburg';
     const stores = await loadStoreIdentities(firestore, authority.workspaceId);
     const identityCandidates = findStoreIdentityCandidates({ workspaceId: authority.workspaceId, observedName: draft.observedName, location: draft.location, stores });
     const policy = resolveQaPolicy(project.get('storeQaPolicy'));
@@ -565,6 +600,8 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const update: Record<string, unknown> = {
       status: automatedQa.outcome === 'AUTO_VERIFIED' && !automatedQa.manualApprovalBeforeExport ? 'READY_FOR_EXPORT' : automatedQa.recommendedStatus,
       submittedAt,
+      projectTimeZone,
+      submittedLocalTime: localProjectTimestamp(submittedAt, projectTimeZone),
       updatedAt: submittedAt,
       identityCandidates,
       automatedQa: { ...automatedQa, assessedAt: submittedAt, policyVersion: 'store-qa-dev-v1' },
