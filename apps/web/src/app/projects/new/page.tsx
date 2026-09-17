@@ -7,8 +7,10 @@ import { darkRoadmapStyle, loadGoogleMaps } from '../../../components/ProjectCov
 import { fieldApiOrigin, getFieldToken } from '../../field/map/field-api';
 import styles from './project-setup.module.css';
 import accessStyles from './admin-access.module.css';
+import questionStyles from './questionnaire-builder.module.css';
 
 type Coordinate = { latitude: number; longitude: number };
+type ProjectQuestion = { id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: string[] };
 type PublishResult = {
   project: { id: string; name: string; boundaryAreaSquareKm: number };
   assignment: { id: string; areaName: string };
@@ -28,6 +30,9 @@ export default function NewProjectPage() {
   const clickListenerRef = useRef<any>(null);
   const [name, setName] = useState('Local Store Capture Test');
   const [areaName, setAreaName] = useState('Test capture area');
+  const [timeZone, setTimeZone] = useState('Africa/Johannesburg');
+  const [formTemplateId, setFormTemplateId] = useState<'STANDARD_FMCG' | 'CUSTOM'>('STANDARD_FMCG');
+  const [questions, setQuestions] = useState<ProjectQuestion[]>([]);
   const [boundary, setBoundary] = useState<Coordinate[]>([]);
   const [message, setMessage] = useState('Tap the map to draw at least three boundary points.');
   const [busy, setBusy] = useState(false);
@@ -62,6 +67,7 @@ export default function NewProjectPage() {
   }
 
   useEffect(() => { void loadAssignmentOptions(); }, []);
+  useEffect(() => { const detected = Intl.DateTimeFormat().resolvedOptions().timeZone; if (detected) setTimeZone(detected); }, []);
 
   function syncPolygon(points: Coordinate[]) {
     setBoundary(points);
@@ -123,7 +129,7 @@ export default function NewProjectPage() {
       const token = await getFieldToken();
       const response = await fetch(`${fieldApiOrigin()}/api/v1/dev/projects/publish`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, areaName, boundary }),
+        body: JSON.stringify({ name, areaName, boundary, timeZone, formTemplateId, questions }),
       });
       const body = await response.json() as PublishResult & { message?: string };
       if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'The test project could not be published.');
@@ -188,6 +194,10 @@ export default function NewProjectPage() {
           <p className={styles.eyebrow}>Development publisher</p><h2>Project details</h2>
           <label>Project name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label>Capture area name<input value={areaName} onChange={(event) => setAreaName(event.target.value)} /></label>
+          <label>Project area timezone<select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}><option value="Africa/Johannesburg">South Africa · Africa/Johannesburg</option><option value="Africa/Lagos">Nigeria · Africa/Lagos</option><option value="Africa/Maputo">Mozambique · Africa/Maputo</option><option value="Africa/Mbabane">Eswatini · Africa/Mbabane</option><option value="Africa/Maseru">Lesotho · Africa/Maseru</option><option value="Africa/Harare">Zimbabwe · Africa/Harare</option></select></label>
+          <label>Capture form<select value={formTemplateId} onChange={(event) => setFormTemplateId(event.target.value as 'STANDARD_FMCG' | 'CUSTOM')}><option value="STANDARD_FMCG">Standard FMCG store form</option><option value="CUSTOM">Custom questionnaire only</option></select></label>
+          {formTemplateId === 'STANDARD_FMCG' ? <div className={styles.scope}><strong>Standard form includes</strong><span>Owner or contact name</span><span>Multiple brands and products</span><span>Purchase and selling price</span><span>Daily sales volume</span><span>Storefront photo and GPS evidence</span></div> : null}
+          <div className={questionStyles.questionBuilder}><div><strong>Additional questionnaire fields</strong><span>Create text, number or selection questions for this project.</span></div>{questions.map((question, index) => <fieldset key={`${question.id}-${index}`}><input aria-label="Question field name" value={question.id} placeholder="fieldName" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, id: event.target.value.replace(/[^A-Za-z0-9_]/g, '') } : item))}/><input aria-label="Question label" value={question.label} placeholder="Question shown to capturer" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))}/><select aria-label="Question type" value={question.type} onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value as ProjectQuestion['type'] } : item))}><option value="text">Text</option><option value="number">Number</option><option value="select">Select one</option></select>{question.type === 'select' ? <input aria-label="Selectable options" value={question.options.join(', ')} placeholder="Option A, Option B" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, options: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) } : item))}/> : null}<label className={questionStyles.requiredField}><input type="checkbox" checked={question.required} onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, required: event.target.checked } : item))}/>Required</label><button type="button" onClick={() => setQuestions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></fieldset>)}<button type="button" onClick={() => setQuestions((current) => [...current, { id: `question${current.length + 1}`, label: '', type: 'text', required: true, options: [] }])}>＋ Add questionnaire field</button></div>
           <div className={styles.scope}><strong>What publication creates</strong><span>Active project and immutable boundary version</span><span>Exception-only store QA policy</span><span>Assignment to your current account</span><span>Ready field search session</span></div>
           <p className={styles.message} role="status">{message}</p>
           {published ? <div className={styles.success}><strong>{published.project.name} is live</strong><span>{published.assignment.areaName} · {published.project.boundaryAreaSquareKm.toFixed(2)} km²</span><button className={styles.publish} type="button" disabled={streetImportBusy} onClick={() => void importProjectStreets()}>{streetImportBusy ? 'Importing polygon streets…' : 'Import worked and outstanding streets'}</button><span>{streetImportMessage}</span><Link href={published.links.fieldMap}>Open assignment and capture →</Link><Link href={published.links.projectMap ?? `/projects/demo/map?project=${encodeURIComponent(published.project.id)}`}>Open this project map →</Link></div>
