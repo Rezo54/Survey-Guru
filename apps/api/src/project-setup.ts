@@ -1,4 +1,5 @@
 export type BoundaryPoint = Readonly<{ latitude: number; longitude: number }>;
+export type ProjectQuestion = Readonly<{ id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: readonly string[] }>;
 
 export class ProjectSetupValidationError extends Error {}
 
@@ -31,11 +32,31 @@ export function validateProjectSetup(input: {
   name?: unknown;
   areaName?: unknown;
   boundary?: unknown;
-}): { name: string; areaName: string; boundary: BoundaryPoint[]; areaSquareKm: number } {
+  timeZone?: unknown;
+  formTemplateId?: unknown;
+  questions?: unknown;
+}): { name: string; areaName: string; boundary: BoundaryPoint[]; areaSquareKm: number; timeZone: string; formTemplateId: 'STANDARD_FMCG' | 'CUSTOM'; questions: ProjectQuestion[] } {
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   const areaName = typeof input.areaName === 'string' ? input.areaName.trim() : '';
   if (name.length < 3 || name.length > 100) throw new ProjectSetupValidationError('Project name must contain 3 to 100 characters.');
   if (areaName.length < 2 || areaName.length > 100) throw new ProjectSetupValidationError('Capture area name must contain 2 to 100 characters.');
+  const timeZone = typeof input.timeZone === 'string' ? input.timeZone.trim() : '';
+  try { if (!timeZone || new Intl.DateTimeFormat('en', { timeZone }).resolvedOptions().timeZone !== timeZone) throw new Error(); }
+  catch { throw new ProjectSetupValidationError('Select a valid project-area timezone.'); }
+  const formTemplateId = input.formTemplateId === 'CUSTOM' ? 'CUSTOM' : 'STANDARD_FMCG';
+  if (!Array.isArray(input.questions) || input.questions.length > 30) throw new ProjectSetupValidationError('The questionnaire may contain up to 30 custom questions.');
+  const questions = input.questions.map((value, index) => {
+    if (!value || typeof value !== 'object') throw new ProjectSetupValidationError(`Question ${index + 1} is invalid.`);
+    const item = value as Record<string, unknown>;
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+    const label = typeof item.label === 'string' ? item.label.trim() : '';
+    const type = item.type === 'number' || item.type === 'select' ? item.type : 'text';
+    const options = Array.isArray(item.options) ? item.options.map((option) => String(option).trim()).filter(Boolean).slice(0, 30) : [];
+    if (!/^[A-Za-z][A-Za-z0-9_]{1,49}$/.test(id) || label.length < 2 || label.length > 100) throw new ProjectSetupValidationError(`Question ${index + 1} needs a valid field name and label.`);
+    if (type === 'select' && options.length < 2) throw new ProjectSetupValidationError(`Question ${label} needs at least two selectable options.`);
+    return { id, label, type, required: item.required !== false, options } as ProjectQuestion;
+  });
+  if (new Set(questions.map((question) => question.id)).size !== questions.length) throw new ProjectSetupValidationError('Question field names must be unique.');
   if (!Array.isArray(input.boundary) || input.boundary.length < 3 || input.boundary.length > 100) throw new ProjectSetupValidationError('Draw a project boundary with 3 to 100 points.');
 
   const boundary = input.boundary.map((value) => {
@@ -48,7 +69,7 @@ export function validateProjectSetup(input: {
   const areaSquareKm = polygonAreaSquareKm(boundary);
   if (areaSquareKm < 0.002) throw new ProjectSetupValidationError('The project boundary is too small to form a useful capture area.');
   if (areaSquareKm > 100) throw new ProjectSetupValidationError('The development project boundary may not exceed 100 km². Draw a smaller test area.');
-  return { name, areaName, boundary, areaSquareKm };
+  return { name, areaName, boundary, areaSquareKm, timeZone, formTemplateId, questions };
 }
 
 export function validateProjectAssignment(input: { userId?: unknown; areaName?: unknown }): { userId: string; areaName: string } {
