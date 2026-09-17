@@ -43,8 +43,20 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       const segment = parseProjectStreetSegment(document.id, document.data());
       return buildProjectStreetCoverageView({ segment, contributions, policy, verified: document.get('verificationStatus') === 'VERIFIED' });
     });
-    const capturedStores = capturesSnapshot.docs
-      .filter((document) => document.get('workspaceId') === authority.workspaceId && ['READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
+    const authorisedCaptures = capturesSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId);
+    const capturerIds = Array.from(new Set(authorisedCaptures.map((document) => document.get('capturerUserId')).filter((value): value is string => typeof value === 'string')));
+    const capturerEntries = await Promise.all(capturerIds.map(async (userId) => {
+      const user = await firestore.collection('users').doc(userId).get();
+      return [userId, user.get('displayName') ?? user.get('email') ?? userId] as const;
+    }));
+    const capturerNames = new Map(capturerEntries);
+    const johannesburgDay = (value: unknown) => {
+      const date = new Date(String(value ?? ''));
+      return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date) : '';
+    };
+    const today = johannesburgDay(new Date().toISOString());
+    const capturedStores = authorisedCaptures
+      .filter((document) => ['READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
       .map((document) => ({
         captureId: document.id,
         storeId: document.get('resolvedStoreId'),
@@ -53,10 +65,22 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         location: document.get('location'),
         answers: document.get('answers'),
         capturerUserId: document.get('capturerUserId'),
+        capturerName: capturerNames.get(String(document.get('capturerUserId'))) ?? document.get('capturerUserId'),
         capturedAt: document.get('submittedAt') ?? document.get('updatedAt'),
+        capturedToday: johannesburgDay(document.get('submittedAt') ?? document.get('updatedAt')) === today,
         photoCount: Array.isArray(document.get('photos')) ? document.get('photos').length : 0,
         exportState: document.get('exportJobId') ? 'QUEUED' : 'NOT_QUEUED',
       }));
+    const brandCounts = new Map<string, number>();
+    for (const document of authorisedCaptures) {
+      const answers = document.get('answers') as Record<string, unknown> | undefined;
+      const brands = Array.isArray(answers?.stockedBrands) ? answers.stockedBrands : [];
+      for (const brand of brands) if (typeof brand === 'string' && brand.trim()) brandCounts.set(brand.trim(), (brandCounts.get(brand.trim()) ?? 0) + 1);
+    }
+    const statusCounts = Object.fromEntries(authorisedCaptures.reduce((counts, document) => {
+      const status = String(document.get('status') ?? 'UNKNOWN'); counts.set(status, (counts.get(status) ?? 0) + 1); return counts;
+    }, new Map<string, number>()));
+    const areaSquareKm = Number(project.get('boundaryAreaSquareKm') ?? 0);
 
     return {
       projectId: project.id,
@@ -64,6 +88,15 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       projectBoundary: parseOptionalBoundary(project.get('boundary')),
       streetSegments,
       capturedStores,
+      storeInsights: {
+        totalCaptures: authorisedCaptures.length,
+        correctCaptures: capturedStores.length,
+        capturedToday: capturedStores.filter((store) => store.capturedToday).length,
+        densityPerSquareKm: areaSquareKm > 0 ? Number((capturedStores.length / areaSquareKm).toFixed(2)) : null,
+        statusCounts,
+        brandPerformance: [...brandCounts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 10).map(([brand, stores]) => ({ brand, stores })),
+        capturers: capturerIds.map((userId) => ({ userId, name: capturerNames.get(userId) ?? userId, captures: capturedStores.filter((store) => store.capturerUserId === userId).length })),
+      },
       summary: {
         totalSegments: streetSegments.length,
         uncoveredSegments: streetSegments.filter((segment) => segment.coverageState === 'UNCOVERED').length,
