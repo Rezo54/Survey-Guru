@@ -10,6 +10,7 @@ declare global {
   interface Window {
     google?: any;
     __surveyGuruGoogleMapsPromise?: Promise<void>;
+    __surveyGuruGooglePlacesPromise?: Promise<void>;
   }
 }
 
@@ -87,12 +88,19 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
     script.id = MAP_SCRIPT_ID;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=marker,places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=marker`;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Google Maps failed to load.'));
     document.head.appendChild(script);
   });
   return window.__surveyGuruGoogleMapsPromise;
+}
+
+export function loadGooglePlaces(): Promise<void> {
+  if (window.google?.maps?.places?.Autocomplete) return Promise.resolve();
+  if (window.__surveyGuruGooglePlacesPromise) return window.__surveyGuruGooglePlacesPromise;
+  window.__surveyGuruGooglePlacesPromise = Promise.resolve(window.google?.maps?.importLibrary?.('places')).then(() => undefined);
+  return window.__surveyGuruGooglePlacesPromise;
 }
 
 export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true, mapType = 'roadmap', coverageLayerVisible = true, controlsVisible = true, locateRequest = 0, captureHref }: {
@@ -264,7 +272,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         gestureHandling: variant === 'dashboard' ? 'cooperative' : 'greedy',
       });
       mapRef.current = map;
-      if (!placeListenerRef.current && maps.places?.Autocomplete) {
+      if (!placeListenerRef.current && !searchControlRef.current) void loadGooglePlaces().then(() => {
+        if (cancelled || searchControlRef.current || !maps.places?.Autocomplete) return;
         const control = document.createElement('div');
         control.className = styles.googlePlaceSearch ?? '';
         const icon = document.createElement('span'); icon.textContent = '⌕';
@@ -281,7 +290,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           else { map.panTo(place.geometry.location); map.setZoom(17); }
           setError(null);
         });
-      }
+      }).catch(() => setError('Google Places search is temporarily unavailable.'));
       if (variant !== 'field' && !controlsAttachedRef.current) {
         const controlHost = document.createElement('div');
         map.controls[maps.ControlPosition.TOP_LEFT].push(controlHost);
