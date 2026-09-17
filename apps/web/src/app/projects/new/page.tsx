@@ -5,12 +5,14 @@ import { useEffect, useRef, useState } from 'react';
 import SurveyGuruSidebar from '../../../components/SurveyGuruSidebar';
 import { darkRoadmapStyle, loadGoogleMaps, loadGooglePlaces } from '../../../components/ProjectCoverageMap';
 import { fieldApiOrigin, getFieldToken } from '../../field/map/field-api';
+import { readQuestionnaireWorkbook } from '../../../lib/questionnaire-workbook';
 import styles from './project-setup.module.css';
 import accessStyles from './admin-access.module.css';
 import questionStyles from './questionnaire-builder.module.css';
 
 type Coordinate = { latitude: number; longitude: number };
 type ProjectQuestion = { id: string; label: string; type: 'text' | 'number' | 'select'; required: boolean; options: string[] };
+type ProjectProduct = { brand: string; product: string; active: boolean; displayOrder: number };
 type PublishResult = {
   project: { id: string; name: string; boundaryAreaSquareKm: number };
   assignment: { id: string; areaName: string };
@@ -35,6 +37,8 @@ export default function NewProjectPage() {
   const [timeZone, setTimeZone] = useState('Africa/Johannesburg');
   const [formTemplateId, setFormTemplateId] = useState<'STANDARD_FMCG' | 'CUSTOM'>('STANDARD_FMCG');
   const [questions, setQuestions] = useState<ProjectQuestion[]>([]);
+  const [productCatalogue, setProductCatalogue] = useState<ProjectProduct[]>([]);
+  const [workbookMessage, setWorkbookMessage] = useState('Load the standard project questionnaire and product catalogue from the Excel template.');
   const [boundary, setBoundary] = useState<Coordinate[]>([]);
   const [message, setMessage] = useState('Tap the map to draw at least three boundary points.');
   const [busy, setBusy] = useState(false);
@@ -114,23 +118,17 @@ export default function NewProjectPage() {
       mapRef.current = map;
       polygonRef.current = polygon;
       void loadGooglePlaces().then(() => {
-        if (cancelled || searchControlRef.current || !maps.places?.Autocomplete) return;
-        const control = document.createElement('div');
-        control.className = styles.googlePlaceSearch ?? '';
-        const icon = document.createElement('span'); icon.textContent = '⌕';
-        const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search Google Maps'; input.setAttribute('aria-label', 'Search Google Maps for a place or street');
-        control.append(icon, input);
-        map.controls[maps.ControlPosition.TOP_LEFT].push(control);
-        searchControlRef.current = control;
-        const autocomplete = new maps.places.Autocomplete(input, { fields: ['geometry', 'name', 'formatted_address'] });
-        autocomplete.bindTo('bounds', map);
-        placeListenerRef.current = autocomplete.addListener('place_changed', () => {
-          const place = autocomplete.getPlace();
-          if (!place.geometry?.location) return setMessage('Select a result from Google Places to move the map.');
-          if (place.geometry.viewport) map.fitBounds(place.geometry.viewport);
-          else { map.setCenter(place.geometry.location); map.setZoom(17); }
-          setMessage(`Map moved to ${place.formatted_address ?? place.name ?? 'the selected place'}. Tap the map to draw the boundary.`);
-        });
+        if (cancelled || searchControlRef.current) return;
+        const control = document.createElement('div'); control.className = styles.googlePlaceSearch ?? '';
+        if (maps.places?.PlaceAutocompleteElement) {
+          const autocomplete = new maps.places.PlaceAutocompleteElement({}); autocomplete.setAttribute('placeholder', 'Search places and streets'); autocomplete.setAttribute('aria-label', 'Search Google Maps'); control.append(autocomplete);
+          const onSelect = async (event: any) => { const place = event.placePrediction?.toPlace?.(); if (!place) return; await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'viewport'] }); if (place.viewport) map.fitBounds(place.viewport); else if (place.location) { map.setCenter(place.location); map.setZoom(17); } setMessage(`Map moved to ${place.formattedAddress ?? place.displayName ?? 'the selected place'}. Tap the map to draw the boundary.`); };
+          autocomplete.addEventListener('gmp-select', onSelect); placeListenerRef.current = { remove: () => autocomplete.removeEventListener('gmp-select', onSelect) };
+        } else if (maps.places?.Autocomplete) {
+          const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search places and streets'; control.append(input); const autocomplete = new maps.places.Autocomplete(input, { fields: ['geometry', 'name', 'formatted_address'] }); autocomplete.bindTo('bounds', map);
+          placeListenerRef.current = autocomplete.addListener('place_changed', () => { const place = autocomplete.getPlace(); if (!place.geometry?.location) return; if (place.geometry.viewport) map.fitBounds(place.geometry.viewport); else { map.setCenter(place.geometry.location); map.setZoom(17); } });
+        } else return;
+        map.controls[maps.ControlPosition.TOP_CENTER].push(control); searchControlRef.current = control;
       }).catch(() => setMessage('The map is ready, but Google Places search is temporarily unavailable.'));
       clickListenerRef.current = map.addListener('click', (event: any) => {
         if (!event.latLng) return;
@@ -153,7 +151,7 @@ export default function NewProjectPage() {
       const token = await getFieldToken();
       const response = await fetch(`${fieldApiOrigin()}/api/v1/dev/projects/publish`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, areaName, boundary, timeZone, formTemplateId, questions }),
+        body: JSON.stringify({ name, areaName, boundary, timeZone, formTemplateId, questions, productCatalogue }),
       });
       const body = await response.json() as PublishResult & { message?: string };
       if (!response.ok || !body.searchSession) throw new Error(body.message ?? 'The test project could not be published.');
@@ -165,6 +163,16 @@ export default function NewProjectPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function importQuestionnaire(file: File | undefined) {
+    if (!file) return;
+    try {
+      setWorkbookMessage('Reading the Excel questionnaire…');
+      const imported = await readQuestionnaireWorkbook(file);
+      setQuestions(imported.questions); setProductCatalogue(imported.products);
+      setWorkbookMessage(`${imported.questions.length} questionnaire fields and ${imported.products.length} active products loaded.`);
+    } catch (error) { setWorkbookMessage(error instanceof Error ? error.message : 'The questionnaire workbook could not be read.'); }
   }
 
   async function assignCapturer() {
@@ -220,6 +228,8 @@ export default function NewProjectPage() {
           <label>Capture area name<input value={areaName} onChange={(event) => setAreaName(event.target.value)} /></label>
           <label>Project area timezone<select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}><option value="Africa/Johannesburg">South Africa · Africa/Johannesburg</option><option value="Africa/Lagos">Nigeria · Africa/Lagos</option><option value="Africa/Maputo">Mozambique · Africa/Maputo</option><option value="Africa/Mbabane">Eswatini · Africa/Mbabane</option><option value="Africa/Maseru">Lesotho · Africa/Maseru</option><option value="Africa/Harare">Zimbabwe · Africa/Harare</option></select></label>
           <label>Capture form<select value={formTemplateId} onChange={(event) => setFormTemplateId(event.target.value as 'STANDARD_FMCG' | 'CUSTOM')}><option value="STANDARD_FMCG">Standard FMCG store form</option><option value="CUSTOM">Custom questionnaire only</option></select></label>
+          <label>Project questionnaire workbook<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void importQuestionnaire(event.target.files?.[0])}/><small>{workbookMessage}</small></label>
+          {productCatalogue.length ? <div className={styles.scope}><strong>Loaded product catalogue</strong><span>{productCatalogue.length} active brand and product combinations</span><span>{new Set(productCatalogue.map((item) => item.brand)).size} brands</span><button type="button" onClick={() => setProductCatalogue([])}>Clear product catalogue</button></div> : null}
           {formTemplateId === 'STANDARD_FMCG' ? <div className={styles.scope}><strong>Standard form includes</strong><span>Owner or contact name</span><span>Multiple brands and products</span><span>Purchase and selling price</span><span>Daily sales volume</span><span>Storefront photo and GPS evidence</span></div> : null}
           <div className={questionStyles.questionBuilder}><div><strong>Additional questionnaire fields</strong><span>Create text, number or selection questions for this project.</span></div>{questions.map((question, index) => <fieldset key={`${question.id}-${index}`}><input aria-label="Question field name" value={question.id} placeholder="fieldName" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, id: event.target.value.replace(/[^A-Za-z0-9_]/g, '') } : item))}/><input aria-label="Question label" value={question.label} placeholder="Question shown to capturer" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))}/><select aria-label="Question type" value={question.type} onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value as ProjectQuestion['type'] } : item))}><option value="text">Text</option><option value="number">Number</option><option value="select">Select one</option></select>{question.type === 'select' ? <input aria-label="Selectable options" value={question.options.join(', ')} placeholder="Option A, Option B" onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, options: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) } : item))}/> : null}<label className={questionStyles.requiredField}><input type="checkbox" checked={question.required} onChange={(event) => setQuestions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, required: event.target.checked } : item))}/>Required</label><button type="button" onClick={() => setQuestions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></fieldset>)}<button type="button" onClick={() => setQuestions((current) => [...current, { id: `question${current.length + 1}`, label: '', type: 'text', required: true, options: [] }])}>＋ Add questionnaire field</button></div>
           <div className={styles.scope}><strong>What publication creates</strong><span>Active project and immutable boundary version</span><span>Exception-only store QA policy</span><span>Assignment to your current account</span><span>Ready field search session</span></div>
