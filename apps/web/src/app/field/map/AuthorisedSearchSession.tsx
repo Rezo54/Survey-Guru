@@ -146,7 +146,7 @@ export default function AuthorisedSearchSession() {
   return <>
     <section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section>
     <section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section>
-    {session.projectId ? <SharedStreetCoverageMap projectId={session.projectId} refreshKey={coverageRefresh} /> : null}
+    {session.projectId ? <SharedStreetCoverageMap projectId={session.projectId} refreshKey={coverageRefresh} {...(session.assignmentId ? { captureHref: `/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}` } : {})} /> : null}
     <section className={s.action}>
       <p className={s.eyebrow}>Authorised field state</p>
       <h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2>
