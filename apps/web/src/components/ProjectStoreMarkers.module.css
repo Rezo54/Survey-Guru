@@ -3,6 +3,12 @@
   border-radius: 50% !important;
 }
 
+.todayDot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: #f3b333 !important; box-shadow: 0 0 0 2px rgba(255,247,220,.8); }
+.capturerFilter { border: 1px solid #37b995; border-radius: 8px; background: #0b2c2d; color: #effff9; padding: 9px 10px; font: inherit; max-width: 230px; }
+.insights { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-top: 1px solid #173b45; background: #081c27; color: #9fb9b3; font-size: .72rem; }
+.insights span { border: 1px solid #214754; border-radius: 999px; padding: 6px 9px; background: #0b2632; }
+.insights b { color: #ecfff9; }
+
 .storePopup {
   display: grid;
   gap: 5px;
