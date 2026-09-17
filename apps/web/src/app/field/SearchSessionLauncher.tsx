@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { fieldApiOrigin, getFieldToken } from './map/field-api';
 import styles from './field-today.module.css';
+import mobileStyles from './assignment-mobile.module.css';
 
 export default function SearchSessionLauncher({ assignmentId, compact = false }: { assignmentId: string; compact?: boolean }) {
   const router = useRouter();
@@ -26,5 +27,5 @@ export default function SearchSessionLauncher({ assignmentId, compact = false }:
     }
   }
 
-  return <div className={compact ? styles.queueAction : undefined}><button type="button" className={compact ? styles.assignmentAction : styles.heroAction} onClick={startOrResume} disabled={busy}>{busy ? 'Opening…' : compact ? 'Open assignment →' : 'Start / resume field map →'}</button>{error ? <small className={styles.assignmentError}>{error}</small> : null}</div>;
+  return <div className={compact ? `${styles.queueAction} ${mobileStyles.queueAction}` : undefined}><button type="button" className={compact ? `${styles.assignmentAction} ${mobileStyles.assignmentAction}` : styles.heroAction} onClick={startOrResume} disabled={busy}>{busy ? 'Opening…' : compact ? 'Open assignment →' : 'Start / resume field map →'}</button>{error ? <small className={styles.assignmentError}>{error}</small> : null}</div>;
 }
