@@ -12,7 +12,7 @@ type PublishResult = {
   project: { id: string; name: string; boundaryAreaSquareKm: number };
   assignment: { id: string; areaName: string };
   searchSession: { id: string; state: string };
-  links: { fieldMap: string };
+  links: { fieldMap: string; projectMap?: string };
 };
 type AssignmentOptions = {
   projects: Array<{ id: string; name: string; boundaryAreaSquareKm: number | null; publishedAt: string | null }>;
@@ -31,6 +31,8 @@ export default function NewProjectPage() {
   const [message, setMessage] = useState('Tap the map to draw at least three boundary points.');
   const [busy, setBusy] = useState(false);
   const [published, setPublished] = useState<PublishResult | null>(null);
+  const [streetImportBusy, setStreetImportBusy] = useState(false);
+  const [streetImportMessage, setStreetImportMessage] = useState('Import the polygon streets before field testing so worked and outstanding roads are both visible.');
   const [options, setOptions] = useState<AssignmentOptions | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedCapturerId, setSelectedCapturerId] = useState('');
@@ -153,6 +155,20 @@ export default function NewProjectPage() {
     }
   }
 
+  async function importProjectStreets() {
+    if (!published) return;
+    setStreetImportBusy(true);
+    setStreetImportMessage('Importing road geometry inside the published polygon…');
+    try {
+      const token = await getFieldToken();
+      const response = await fetch(`${fieldApiOrigin()}/api/v1/dev/projects/${encodeURIComponent(published.project.id)}/import-streets`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const body = await response.json() as { segmentCount?: number; message?: string };
+      if (!response.ok || !body.segmentCount) throw new Error(body.message ?? 'The project streets could not be imported.');
+      setStreetImportMessage(`${body.segmentCount} street segments imported. They begin red and turn green only where walking is confirmed.`);
+    } catch (error) { setStreetImportMessage(error instanceof Error ? error.message : 'The project streets could not be imported.'); }
+    finally { setStreetImportBusy(false); }
+  }
+
   return <main className={styles.page}><div className={styles.shell}>
     <SurveyGuruSidebar active="project-map" />
     <section className={styles.main}>
@@ -168,7 +184,7 @@ export default function NewProjectPage() {
           <label>Capture area name<input value={areaName} onChange={(event) => setAreaName(event.target.value)} /></label>
           <div className={styles.scope}><strong>What publication creates</strong><span>Active project and immutable boundary version</span><span>Exception-only store QA policy</span><span>Assignment to your current account</span><span>Ready field search session</span></div>
           <p className={styles.message} role="status">{message}</p>
-          {published ? <div className={styles.success}><strong>{published.project.name} is live</strong><span>{published.assignment.areaName} · {published.project.boundaryAreaSquareKm.toFixed(2)} km²</span><Link href={published.links.fieldMap}>Open assignment and capture →</Link></div>
+          {published ? <div className={styles.success}><strong>{published.project.name} is live</strong><span>{published.assignment.areaName} · {published.project.boundaryAreaSquareKm.toFixed(2)} km²</span><button className={styles.publish} type="button" disabled={streetImportBusy} onClick={() => void importProjectStreets()}>{streetImportBusy ? 'Importing polygon streets…' : 'Import worked and outstanding streets'}</button><span>{streetImportMessage}</span><Link href={published.links.fieldMap}>Open assignment and capture →</Link><Link href={published.links.projectMap ?? `/projects/demo/map?project=${encodeURIComponent(published.project.id)}`}>Open this project map →</Link></div>
             : <button className={styles.publish} type="button" disabled={busy || boundary.length < 3 || name.trim().length < 3 || areaName.trim().length < 2} onClick={publishProject}>{busy ? 'Publishing…' : 'Publish test capture area'}</button>}
           <small>This development shortcut assigns the publishing administrator as capturer for this test. Production setup will keep administrator and field roles separate.</small>
         </section>
