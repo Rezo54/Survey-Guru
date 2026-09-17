@@ -28,6 +28,8 @@ export default function NewProjectPage() {
   const mapRef = useRef<any>(null);
   const polygonRef = useRef<any>(null);
   const clickListenerRef = useRef<any>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const placeListenerRef = useRef<any>(null);
   const [name, setName] = useState('Local Store Capture Test');
   const [areaName, setAreaName] = useState('Test capture area');
   const [timeZone, setTimeZone] = useState('Africa/Johannesburg');
@@ -111,6 +113,17 @@ export default function NewProjectPage() {
       const polygon = new maps.Polygon({ map, paths: [], strokeColor: '#18dda5', strokeOpacity: 1, strokeWeight: 3, fillColor: '#18dda5', fillOpacity: .12, zIndex: 4 });
       mapRef.current = map;
       polygonRef.current = polygon;
+      if (searchInputRef.current && maps.places?.Autocomplete) {
+        const autocomplete = new maps.places.Autocomplete(searchInputRef.current, { fields: ['geometry', 'name', 'formatted_address'] });
+        autocomplete.bindTo('bounds', map);
+        placeListenerRef.current = autocomplete.addListener('place_changed', () => {
+          const place = autocomplete.getPlace();
+          if (!place.geometry?.location) return setMessage('Select a result from Google Places to move the map.');
+          if (place.geometry.viewport) map.fitBounds(place.geometry.viewport);
+          else { map.setCenter(place.geometry.location); map.setZoom(17); }
+          setMessage(`Map moved to ${place.formatted_address ?? place.name ?? 'the selected place'}. Tap the map to draw the boundary.`);
+        });
+      }
       clickListenerRef.current = map.addListener('click', (event: any) => {
         if (!event.latLng) return;
         setBoundary((current) => {
@@ -122,7 +135,7 @@ export default function NewProjectPage() {
       });
       setMapState('ready');
     }).catch((error) => { setMapState('error'); setMessage(error instanceof Error ? error.message : 'Google Maps failed to load.'); });
-    return () => { cancelled = true; clickListenerRef.current?.remove(); polygonRef.current?.setMap(null); };
+    return () => { cancelled = true; clickListenerRef.current?.remove(); placeListenerRef.current?.remove(); polygonRef.current?.setMap(null); };
   }, [adminAccess, apiKey]);
 
   async function publishProject() {
@@ -190,7 +203,7 @@ export default function NewProjectPage() {
       <header className={styles.header}><div><p>Survey Guru · Project setup</p><h1>Define a test capture area</h1><span>Draw the authorised boundary, publish it, then enter the field workflow using the assignment created for your signed-in account.</span></div><Link href="/projects/demo/map">Back to project map</Link></header>
       <div className={styles.grid}>
         <section className={styles.mapCard}>
-          <div className={styles.mapFrame}><div ref={hostRef} className={styles.map}/>{!apiKey ? <div className={styles.mapNotice}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to draw the project area.</div> : mapState !== 'ready' ? <div className={styles.mapNotice}>{mapState === 'error' ? 'Google Maps could not load. Check the allowed website on the Maps API key, then refresh.' : 'Loading project-area map…'}</div> : null}</div>
+          <div className={styles.mapFrame}><div className={styles.placeSearch}><span>⌕</span><input ref={searchInputRef} type="search" aria-label="Search Google Maps for a place or street" placeholder="Search place, street or address" /></div><div ref={hostRef} className={styles.map}/>{!apiKey ? <div className={styles.mapNotice}>Add <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to draw the project area.</div> : mapState !== 'ready' ? <div className={styles.mapNotice}>{mapState === 'error' ? 'Google Maps could not load. Check the allowed website on the Maps API key, then refresh.' : 'Loading project-area map…'}</div> : null}</div>
           <div className={styles.mapActions}><button type="button" onClick={locateAndDraft}>⌾ Use area around me</button><button type="button" onClick={() => syncPolygon(boundary.slice(0, -1))} disabled={!boundary.length}>Undo point</button><button type="button" onClick={() => syncPolygon([])} disabled={!boundary.length}>Clear boundary</button></div>
         </section>
         <section className={styles.formCard}>
