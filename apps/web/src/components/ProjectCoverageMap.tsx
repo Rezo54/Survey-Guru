@@ -32,9 +32,11 @@ type CoverageResponse = {
   capturedStores?: CapturedStore[];
   storeInsights?: { totalCaptures: number; correctCaptures: number; capturedToday: number; densityPerSquareKm: number | null; statusCounts: Record<string, number>; brandPerformance: Array<{ brand: string; stores: number }>; capturers: Array<{ userId: string; name: string; captures: number }> };
   summary: { totalSegments: number; uncoveredSegments: number; partialSegments: number; coveredSegments: number; totalRoadMetres?: number; walkedRoadMetres?: number; walkedPercent?: number; capturedStoreCount?: number; capturedStoreScope?: 'ALL_PROJECT_USERS' | 'CURRENT_USER' };
+  authority?: { canViewAllCustomers?: boolean; canReviewStores?: boolean };
+  customerScope?: 'SELECTED_PROJECT' | 'ALL_AUTHORISED_PROJECTS';
   message?: string;
 };
-type CapturedStore = { captureId: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
+type CapturedStore = { captureId: string; projectId?: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -103,7 +105,7 @@ export function loadGooglePlaces(): Promise<void> {
   return window.__surveyGuruGooglePlacesPromise;
 }
 
-export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true, mapType = 'roadmap', coverageLayerVisible = true, controlsVisible = true, locateRequest = 0, captureHref }: {
+export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant = 'field', showHeader = true, mapType = 'roadmap', coverageLayerVisible = true, controlsVisible = true, locateRequest = 0, captureHref, customerScope = 'project' }: {
   projectId: string;
   refreshKey?: number;
   variant?: 'field' | 'project' | 'dashboard';
@@ -113,6 +115,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   controlsVisible?: boolean;
   locateRequest?: number;
   captureHref?: string;
+  customerScope?: 'project' | 'workspace';
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -160,7 +163,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
     fittedRef.current = false;
     setCoverage(null);
     setError(null);
-  }, [projectId]);
+  }, [customerScope, projectId]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -184,7 +187,8 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
   const loadCoverage = useCallback(async () => {
     try {
       const token = await getFieldToken();
-      const endpoint = `${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/street-coverage`;
+      const scopeQuery = customerScope === 'workspace' ? '?customerScope=workspace' : '';
+      const endpoint = `${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/street-coverage${scopeQuery}`;
       const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
       const contentType = response.headers.get('content-type') ?? '';
       const responseText = await response.text();
@@ -205,7 +209,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       if (currentProjectRef.current !== projectId) return;
       setError(cause instanceof Error ? cause.message : 'Shared street coverage is unavailable.');
     }
-  }, [projectId]);
+  }, [customerScope, projectId]);
 
   useEffect(() => {
     void loadCoverage();
@@ -413,13 +417,32 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
               try {
                 const token = await getFieldToken();
                 const photos = await Promise.all(Array.from({ length: store.photoCount }, async (_, index) => {
-                  const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(projectId)}/store-captures/${encodeURIComponent(store.captureId)}/photos/${index}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+                  const photoProjectId = store.projectId ?? projectId;
+                  const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(photoProjectId)}/store-captures/${encodeURIComponent(store.captureId)}/photos/${index}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
                   if (!response.ok) throw new Error('Photo unavailable');
                   const url = URL.createObjectURL(await response.blob()); photoUrlsRef.current.push(url); return url;
                 }));
                 gallery.replaceChildren(...photos.map((url, index) => { const image = document.createElement('img'); image.src = url; image.alt = `${store.name} evidence ${index + 1}`; return image; }));
               } catch { loading.textContent = 'Photo evidence is temporarily unavailable.'; }
             })();
+          }
+          if (variant === 'project' && coverage?.authority?.canReviewStores) {
+            const reviewButton = document.createElement('button'); reviewButton.type = 'button'; reviewButton.className = storeStyles.reviewStoreButton ?? ''; reviewButton.textContent = '⚑ Send to QA review';
+            reviewButton.addEventListener('click', () => {
+              const reason = window.prompt(`Describe the anomaly found at ${store.name}. This will create a QA exception without deleting its third-party history.`)?.trim();
+              if (!reason) return;
+              reviewButton.disabled = true; reviewButton.textContent = 'Sending to QA…';
+              void (async () => {
+                try {
+                  const token = await getFieldToken();
+                  const response = await fetch(`${fieldApiOrigin()}/api/v1/store-captures/${encodeURIComponent(store.captureId)}/flag-for-review`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
+                  const result = await response.json().catch(() => ({})) as { message?: string };
+                  if (!response.ok) throw new Error(result.message ?? 'The store could not be sent to QA.');
+                  reviewButton.textContent = '✓ Sent to QA review'; coverageSignatureRef.current = null; void loadCoverage();
+                } catch (cause) { reviewButton.disabled = false; reviewButton.textContent = '⚑ Send to QA review'; window.alert(cause instanceof Error ? cause.message : 'The store could not be sent to QA.'); }
+              })();
+            });
+            panel.append(reviewButton);
           }
           infoWindow.setContent(panel); infoWindow.open({ map, anchor: marker });
         });
@@ -438,7 +461,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
       }
     }).catch((cause: Error) => setError(cause.message));
     return () => { cancelled = true; };
-  }, [apiKey, colourTheme, coverage, liveUserLabel, mapId, projectId, selectedCapturer, variant]);
+  }, [apiKey, colourTheme, coverage, liveUserLabel, loadCoverage, mapId, projectId, selectedCapturer, variant]);
 
   useEffect(() => () => {
     zoomListenerRef.current?.remove?.();
