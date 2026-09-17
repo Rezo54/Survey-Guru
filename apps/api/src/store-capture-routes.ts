@@ -9,6 +9,7 @@ import {
   evaluateStoreCapturePreflight,
   findStoreIdentityCandidates,
   resolveStoreQaDecision,
+  resolvePostSubmissionQaDecision,
   validateStoreCaptureSubmission,
   type StoreCaptureDraft,
   type StoreCaptureStatus,
@@ -30,6 +31,7 @@ type DraftBody = {
 };
 
 type QaDecisionBody = { decision?: unknown; reason?: unknown };
+type QaFlagBody = { reason?: unknown };
 type PreflightBody = Pick<DraftBody, 'observedName' | 'latitude' | 'longitude' | 'accuracyMetres' | 'selectedExistingStoreId' | 'confirmedNewStore'>;
 
 const qaDecisions: readonly StoreQaDecision[] = ['VERIFY', 'VERIFY_AND_READY', 'RETURN_FOR_CORRECTION', 'REJECT', 'MARK_READY_FOR_EXPORT'];
@@ -263,6 +265,11 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
         photoCount: Array.isArray(document.get('photos')) ? document.get('photos').length : 0,
         qaReason: document.get('correctionReason') ?? document.get('rejectionReason') ?? '',
         exportState: document.get('exportJobId') ? 'QUEUED' : 'NOT_QUEUED',
+        rejectedAfterThirdPartySubmission: document.get('rejectedAfterThirdPartySubmission') === true ? 'Yes' : 'No',
+        reconciliationRequired: document.get('reconciliationRequired') === true ? 'Yes' : 'No',
+        preQaStatus: document.get('preQaStatus') ?? '',
+        qaReviewRequestedAt: document.get('qaReviewRequestedAt') ?? '',
+        rejectedAt: document.get('rejectedAt') ?? '',
         ...flattenedAnswers,
       };
     });
@@ -313,16 +320,18 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     return reply.header('Content-Type', contentType).header('Cache-Control', 'private, no-store').send(contents);
   });
 
-  app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/store-captures/qa', async (request) => {
+  app.get<{ Params: { projectId: string }; Querystring: { view?: string } }>('/api/v1/projects/:projectId/store-captures/qa', async (request) => {
     const identity = await verifyRequestIdentity(request);
     const authority = await resolveAuthority(identity);
     requirePermission(authority, 'qa.review');
     requireProjectScope(authority, request.params.projectId);
     const { firestore } = getFirebaseAdminServices();
     const snapshot = await firestore.collection('storeCaptures').where('projectId', '==', request.params.projectId).limit(100).get();
-    const reviewable = new Set<StoreCaptureStatus>(['SUBMITTED']);
+    const rejectedArchive = request.query.view === 'rejected';
     const storeCaptures = snapshot.docs
-      .filter((document) => document.get('workspaceId') === authority.workspaceId && reviewable.has(document.get('status') as StoreCaptureStatus))
+      .filter((document) => document.get('workspaceId') === authority.workspaceId && (rejectedArchive
+        ? document.get('status') === 'REJECTED'
+        : document.get('status') === 'SUBMITTED' || document.get('qaReviewRequested') === true))
       .map((document) => ({
         id: document.id,
         observedName: document.get('observedName'),
@@ -335,9 +344,27 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
         submittedAt: document.get('submittedAt'),
         projectTimeZone: document.get('projectTimeZone') ?? 'Africa/Johannesburg',
         updatedAt: document.get('updatedAt'),
+        qaReviewRequested: document.get('qaReviewRequested') === true,
+        qaReviewReason: document.get('qaReviewReason') ?? null,
+        preQaStatus: document.get('preQaStatus') ?? null,
+        reconciliationRequired: document.get('reconciliationRequired') === true,
+        rejectionReason: document.get('rejectionReason') ?? null,
       }))
       .sort((left, right) => String(left.submittedAt ?? left.updatedAt).localeCompare(String(right.submittedAt ?? right.updatedAt)));
-    return { storeCaptures, authority: { permission: 'qa.review', workspaceId: authority.workspaceId, projectScoped: true } };
+    return { storeCaptures, view: rejectedArchive ? 'REJECTED_RECONCILIATION' : 'EXCEPTIONS', authority: { permission: 'qa.review', workspaceId: authority.workspaceId, projectScoped: true } };
+  });
+
+  app.post<{ Params: { captureId: string }; Body: QaFlagBody }>('/api/v1/store-captures/:captureId/flag-for-review', async (request) => {
+    const { identity, authority, firestore, capture } = await requireQaCapture(request, request.params.captureId);
+    const reason = typeof request.body?.reason === 'string' ? request.body.reason.trim() : '';
+    if (reason.length < 5) throw new StoreCaptureRequestError('Describe the anomaly before sending this store to QA.');
+    const currentStatus = capture.get('status') as StoreCaptureStatus;
+    if (!['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(currentStatus)) throw new StoreCaptureRequestError('Only an accepted store can be sent back to QA from the project map.');
+    const flaggedAt = new Date().toISOString();
+    const eventRef = firestore.collection('storeCaptureQaEvents').doc();
+    await capture.ref.update({ qaReviewRequested: true, qaReviewReason: reason, qaReviewRequestedAt: flaggedAt, qaReviewRequestedBy: identity.uid, preQaStatus: currentStatus, updatedAt: flaggedAt });
+    await eventRef.set({ workspaceId: authority.workspaceId, projectId: capture.get('projectId'), storeCaptureId: capture.id, reviewerUserId: identity.uid, decision: 'FLAG_FOR_REVIEW', reason, fromStatus: currentStatus, toStatus: currentStatus, transitions: [], decidedAt: flaggedAt, environment: process.env.SURVEY_GURU_ENV ?? 'local' });
+    return { storeCapture: { id: capture.id, status: currentStatus, qaReviewRequested: true }, qaEventId: eventRef.id };
   });
 
   app.get<{ Params: { captureId: string; photoIndex: string } }>('/api/v1/store-captures/:captureId/qa-photos/:photoIndex', async (request, reply) => {
@@ -380,7 +407,10 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
       if (!current.exists || current.get('workspaceId') !== authority.workspaceId) throw new AuthorisationError('Store capture is outside the authorised QA scope.');
       const from = current.get('status') as StoreCaptureStatus;
       let resolution;
-      try { resolution = resolveStoreQaDecision(from, decision); }
+      const postExportReview = current.get('qaReviewRequested') === true && ['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(from);
+      try {
+        resolution = postExportReview ? resolvePostSubmissionQaDecision(from, decision) : resolveStoreQaDecision(from, decision);
+      }
       catch (error) { throw new StoreCaptureRequestError(error instanceof Error ? error.message : 'The QA decision is not permitted.'); }
       if (resolution.requiresReason && reason.length < 5) throw new StoreCaptureRequestError('A clear QA reason of at least 5 characters is required.');
       const update: Record<string, unknown> = {
@@ -390,12 +420,21 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
         lastQaReason: reason || null,
         lastReviewedAt: decidedAt,
         lastReviewedBy: identity.uid,
+        qaReviewRequested: false,
+        qaReviewResolvedAt: decidedAt,
+        qaReviewResolvedBy: identity.uid,
       };
       if (resolution.transitions.some((transition) => transition.to === 'VERIFIED')) Object.assign(update, { verifiedAt: decidedAt, verifiedBy: identity.uid });
       if (resolution.finalStatus === 'READY_FOR_EXPORT') Object.assign(update, { readyForExportAt: decidedAt, readyForExportBy: identity.uid });
       if (resolution.finalStatus === 'NEEDS_REVIEW') Object.assign(update, { correctionReason: reason });
-      if (resolution.finalStatus === 'REJECTED') Object.assign(update, { rejectedAt: decidedAt, rejectedBy: identity.uid, rejectionReason: reason });
-      if (resolution.finalStatus === 'READY_FOR_EXPORT') {
+      if (resolution.finalStatus === 'REJECTED') Object.assign(update, {
+        rejectedAt: decidedAt,
+        rejectedBy: identity.uid,
+        rejectionReason: reason,
+        reconciliationRequired: postExportReview && (from === 'SYNCED' || Boolean(current.get('exportJobId'))),
+        rejectedAfterThirdPartySubmission: postExportReview && (from === 'SYNCED' || Boolean(current.get('exportJobId'))),
+      });
+      if (resolution.finalStatus === 'READY_FOR_EXPORT' && !postExportReview) {
         const selectedExistingStoreId = current.get('selectedExistingStoreId');
         let resolvedStoreId: string;
         if (typeof selectedExistingStoreId === 'string' && selectedExistingStoreId) {
