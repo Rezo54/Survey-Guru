@@ -1,7 +1,4 @@
-.toggle { position: fixed; z-index: 10050; top: max(10px, env(safe-area-inset-top)); right: 10px; display: flex; gap: 3px; padding: 4px; border: 1px solid #356273; border-radius: 999px; background: rgb(5 25 35 / .92); box-shadow: 0 5px 22px rgb(0 0 0 / .24); backdrop-filter: blur(12px); }
-.toggle button { min-height: 34px; border: 0; border-radius: 999px; padding: 6px 10px; color: #bcd2cd; background: transparent; font: 750 .76rem/1 system-ui, sans-serif; cursor: pointer; }
-.toggle button[aria-pressed='true'] { color: #042219; background: #32dfb3; }
-:global(html[data-theme='light']) .toggle { border-color: #9bb9b0; background: rgb(255 255 255 / .94); box-shadow: 0 5px 22px rgb(33 60 50 / .18); }
-:global(html[data-theme='light']) .toggle button { color: #36534b; }
-:global(html[data-theme='light']) .toggle button[aria-pressed='true'] { color: white; background: #087b5e; }
-@media (max-width: 560px) { .toggle { top: auto; right: 10px; bottom: max(76px, calc(env(safe-area-inset-bottom) + 68px)); } .toggle button { min-height: 38px; } }
+.toggle { position: fixed; z-index: 10050; top: max(14px, env(safe-area-inset-top)); right: 14px; width: 38px; height: 38px; padding: 0; border: 1px solid #456b77; border-radius: 50%; background: rgb(5 25 35 / .88); color: #eaf8f4; box-shadow: 0 4px 16px rgb(0 0 0 / .2); backdrop-filter: blur(12px); font: 800 1rem/1 system-ui,sans-serif; cursor: pointer; }
+.toggle:hover { border-color: #35d7ad; background: #123a38; }
+:global(html[data-theme='light']) .toggle { border-color: #b4c5bf; background: rgb(255 255 255 / .92); color: #24483d; box-shadow: 0 4px 15px rgb(35 65 55 / .15); }
+@media (max-width: 560px) { .toggle { top: max(10px, env(safe-area-inset-top)); right: 10px; width: 42px; height: 42px; } }
