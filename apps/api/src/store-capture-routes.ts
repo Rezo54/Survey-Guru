@@ -579,12 +579,14 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const configuredFormQuestions = Array.isArray(formConfiguration?.questions) ? formConfiguration.questions : [];
     for (const value of configuredFormQuestions) {
       if (!value || typeof value !== 'object') continue;
-      const question = value as { id?: unknown; type?: unknown; options?: unknown };
+      const question = value as { id?: unknown; type?: unknown; options?: unknown; additionalRow?: unknown };
       if (typeof question.id !== 'string') continue;
       const answer = draft.answers[question.id];
       if (answer === undefined || answer === null || answer === '') continue;
-      if (question.type === 'number' && (typeof answer !== 'number' || !Number.isFinite(answer))) issues.push(`Question ${question.id} requires a valid number.`);
-      if (question.type === 'select' && (!Array.isArray(question.options) || !question.options.includes(answer))) issues.push(`Question ${question.id} must use one of the configured selections.`);
+      const answers = question.additionalRow === true && Array.isArray(answer) ? answer : [answer];
+      const configuredOptions = Array.isArray(question.options) ? question.options : [];
+      if (question.type === 'number' && answers.some((item) => typeof item !== 'number' || !Number.isFinite(item))) issues.push(`Question ${question.id} requires a valid number in every product row.`);
+      if (question.type === 'select' && (!configuredOptions.length || answers.some((item) => !configuredOptions.includes(item)))) issues.push(`Question ${question.id} must use one of the configured selections.`);
     }
     const configuredProducts = (project.get('storeCaptureForm') as { productCatalogue?: unknown } | undefined)?.productCatalogue;
     if (Array.isArray(configuredProducts) && configuredProducts.length && Array.isArray(draft.answers.brandProducts)) {
