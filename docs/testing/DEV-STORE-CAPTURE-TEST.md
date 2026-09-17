@@ -8,7 +8,7 @@ This test exercises the new assignment-scoped questionnaire and photo flow. It c
 - Keep the existing Firebase Admin and web Firebase values in their respective `.env.local` files.
 - Add `FIREBASE_STORAGE_BUCKET` to `apps/api/.env.local`. Use the exact same bucket value as `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` in `apps/web/.env.local`.
 - Firebase Storage must be enabled for the development project.
-- The signed-in development capturer must be allowed to upload an image only beneath `workspaces/{workspaceId}/projects/{projectId}/captures/{captureId}/`. Do not temporarily open the whole bucket for testing.
+- Deploy the repository `storage.rules` to the development Firebase project. They allow the signed-in capturer to upload only into their own editable capture and keep direct evidence reads closed. Do not temporarily open the whole bucket for testing.
 - Run the existing development bootstrap so the user has the active Soweto assignment.
 
 ## Start locally
@@ -24,6 +24,15 @@ npm run dev --workspace @survey-guru/web
 ```
 
 Sign in, open the authorised field map/session, and choose **Capture a store**.
+
+To deploy only the development Storage rules after selecting the correct development Firebase project:
+
+```powershell
+npx firebase-tools use <survey-guru-dev-project-id>
+npx firebase-tools deploy --only storage
+```
+
+Do not run this against the production project. The repository intentionally does not commit `.firebaserc`, so the target must be selected explicitly on each machine.
 
 ## Happy path
 
