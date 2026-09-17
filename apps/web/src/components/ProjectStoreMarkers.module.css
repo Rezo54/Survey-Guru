@@ -1,0 +1,30 @@
+.storeDot {
+  background: #18dda5 !important;
+  border-radius: 50% !important;
+}
+
+.storePopup {
+  display: grid;
+  gap: 5px;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 4px;
+  color: #092019;
+}
+
+.storePopup strong { font-size: 1rem; }
+.storePopup span { color: #365b54; font-size: .75rem; }
+
+.storeGallery {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin-top: 5px;
+}
+
+.storeGallery img {
+  width: 112px;
+  height: 84px;
+  border-radius: 7px;
+  object-fit: cover;
+}
