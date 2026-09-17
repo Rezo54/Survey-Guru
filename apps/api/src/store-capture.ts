@@ -193,7 +193,16 @@ export function validateStoreCaptureSubmission(draft: StoreCaptureDraft, require
   if (draft.photos.length === 0 || draft.photos.some((photo) => !photo.storageObjectPath || !/^[a-f0-9]{64}$/i.test(photo.sha256))) issues.push('At least one integrity-checked store photo is required.');
   for (const questionId of requiredQuestionIds) {
     const answer = draft.answers[questionId];
-    if (answer === undefined || answer === null || answer === '') issues.push(`Question ${questionId} requires an answer.`);
+    if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) issues.push(`Question ${questionId} requires an answer.`);
+  }
+  if (Array.isArray(draft.answers.brandProducts)) {
+    for (const [index, value] of draft.answers.brandProducts.entries()) {
+      const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      if (typeof item.brand !== 'string' || !item.brand.trim() || typeof item.product !== 'string' || !item.product.trim()) issues.push(`Brand ${index + 1} requires a brand and product.`);
+      for (const field of ['purchasePrice', 'sellingPrice', 'dailySalesVolume'] as const) {
+        if (typeof item[field] !== 'number' || !Number.isFinite(item[field]) || item[field] < 0) issues.push(`Brand ${index + 1} requires a valid ${field}.`);
+      }
+    }
   }
   return issues;
 }
