@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, requireAssignmentScope, requirePermission, requireProjectScope, resolveAuthority } from './authority.js';
 import { getFirebaseAdminServices } from './firebase-admin.js';
+import { createStoreReportXlsx } from './store-report-xlsx.js';
 import {
   evaluateAutomatedStoreQa,
   evaluateStoreCapturePreflight,
@@ -207,6 +208,53 @@ async function verifyStoredPhotos(storage: ReturnType<typeof getFirebaseAdminSer
 }
 
 export function registerStoreCaptureRoutes(app: FastifyInstance): void {
+  app.get<{ Params: { projectId: string }; Querystring: { status?: string; capturer?: string } }>('/api/v1/projects/:projectId/store-captures/export.xlsx', async (request, reply) => {
+    const identity = await verifyRequestIdentity(request);
+    const authority = await resolveAuthority(identity);
+    requirePermission(authority, 'export.data');
+    requireProjectScope(authority, request.params.projectId);
+    const { firestore } = getFirebaseAdminServices();
+    const snapshot = await firestore.collection('storeCaptures').where('projectId', '==', request.params.projectId).limit(5000).get();
+    const requestedStatuses = new Set(String(request.query.status ?? '').split(',').map((value) => value.trim().toUpperCase()).filter(Boolean));
+    const requestedCapturer = String(request.query.capturer ?? '').trim();
+    const documents = snapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId
+      && (requestedStatuses.size === 0 || requestedStatuses.has(String(document.get('status'))))
+      && (!requestedCapturer || document.get('capturerUserId') === requestedCapturer));
+    const capturerIds = Array.from(new Set(documents.map((document) => document.get('capturerUserId')).filter((value): value is string => typeof value === 'string')));
+    const capturerEntries = await Promise.all(capturerIds.map(async (userId) => {
+      const user = await firestore.collection('users').doc(userId).get();
+      return [userId, user.get('displayName') ?? user.get('email') ?? userId] as const;
+    }));
+    const capturers = new Map(capturerEntries);
+    const rows = documents.map((document) => {
+      const answers = document.get('answers');
+      const answerRecord = answers && typeof answers === 'object' && !Array.isArray(answers) ? answers as Record<string, unknown> : {};
+      const location = document.get('location') as Record<string, unknown> | undefined;
+      const flattenedAnswers = Object.fromEntries(Object.entries(answerRecord).map(([key, value]) => [key, Array.isArray(value) || (value && typeof value === 'object') ? JSON.stringify(value) : value]));
+      return {
+        captureId: document.id,
+        storeId: document.get('resolvedStoreId') ?? '',
+        storeName: document.get('observedName') ?? '',
+        status: document.get('status') ?? '',
+        capturer: capturers.get(String(document.get('capturerUserId'))) ?? document.get('capturerUserId') ?? '',
+        capturerUserId: document.get('capturerUserId') ?? '',
+        capturedAt: document.get('submittedAt') ?? document.get('updatedAt') ?? '',
+        latitude: location?.latitude ?? '',
+        longitude: location?.longitude ?? '',
+        accuracyMetres: location?.accuracyMetres ?? '',
+        photoCount: Array.isArray(document.get('photos')) ? document.get('photos').length : 0,
+        qaReason: document.get('correctionReason') ?? document.get('rejectionReason') ?? '',
+        exportState: document.get('exportJobId') ? 'QUEUED' : 'NOT_QUEUED',
+        ...flattenedAnswers,
+      };
+    });
+    const workbook = createStoreReportXlsx(rows);
+    const safeProject = request.params.projectId.replace(/[^A-Za-z0-9_-]/g, '_');
+    return reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${safeProject}-store-captures.xlsx"`)
+      .header('Cache-Control', 'private, no-store').send(workbook);
+  });
+
   app.get<{ Params: { projectId: string } }>('/api/v1/projects/:projectId/notifications', async (request) => {
     const identity = await verifyRequestIdentity(request);
     const authority = await resolveAuthority(identity);
@@ -306,6 +354,7 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const eventRef = firestore.collection('storeCaptureQaEvents').doc();
     const newStoreRef = firestore.collection('stores').doc();
     const exportJobRef = firestore.collection('storeExportJobs').doc();
+    const capturerNotificationRef = firestore.collection('projectNotifications').doc();
     const decidedAt = new Date().toISOString();
     await firestore.runTransaction(async (transaction) => {
       const current = await transaction.get(capture.ref);
@@ -376,6 +425,24 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
         decidedAt,
         environment: process.env.SURVEY_GURU_ENV ?? 'local',
       });
+      if (resolution.finalStatus === 'NEEDS_REVIEW' || resolution.finalStatus === 'REJECTED') {
+        transaction.create(capturerNotificationRef, {
+          workspaceId: authority.workspaceId,
+          projectId: current.get('projectId'),
+          storeCaptureId: current.id,
+          type: resolution.finalStatus === 'NEEDS_REVIEW' ? 'STORE_REDO_REQUIRED' : 'STORE_REJECTED',
+          severity: 'ACTION_REQUIRED',
+          title: resolution.finalStatus === 'NEEDS_REVIEW' ? `${current.get('observedName')} must be redone` : `${current.get('observedName')} was rejected`,
+          message: reason,
+          recipientUserId: current.get('capturerUserId'),
+          actorUserId: identity.uid,
+          audiencePermission: 'field.capture',
+          channel: 'IN_APP',
+          deliveryState: 'AVAILABLE',
+          createdAt: decidedAt,
+          environment: process.env.SURVEY_GURU_ENV ?? 'local',
+        });
+      }
     });
     const updated = await capture.ref.get();
     return { storeCapture: { id: updated.id, ...updated.data() }, qaEventId: eventRef.id, authority: { permission: 'qa.review', workspaceId: authority.workspaceId, projectScoped: true } };
