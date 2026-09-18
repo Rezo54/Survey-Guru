@@ -1,0 +1,16 @@
+**/node_modules
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*service-account*.json
+.git
+**/.next
+**/dist
+**/*.tsbuildinfo
+**/*.log
+.test-build
+apps/web
+apps/android
+outputs
+work

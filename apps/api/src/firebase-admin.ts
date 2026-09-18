@@ -1,4 +1,4 @@
-import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
+import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getStorage, type Storage } from 'firebase-admin/storage';
@@ -33,18 +33,20 @@ function readFirebaseAdminConfig(): FirebaseAdminConfig | null {
 }
 
 export function isFirebaseAdminConfigured(): boolean {
-  return readFirebaseAdminConfig() !== null;
+  return readFirebaseAdminConfig() !== null || Boolean(process.env.FIREBASE_PROJECT_ID && (process.env.K_SERVICE || process.env.FIREBASE_USE_ADC === 'true')); 
 }
 
 export function getFirebaseAdminServices(): FirebaseAdminServices {
   const config = readFirebaseAdminConfig();
-  if (!config) {
+  if (!isFirebaseAdminConfigured()) {
     throw new Error('Firebase Admin is not configured for this environment.');
   }
 
   const existing = getApps()[0];
   const app = existing ?? initializeApp({
-    credential: cert(config),
+    credential: config ? cert(config) : applicationDefault(),
+    ...(process.env.FIREBASE_PROJECT_ID ? { projectId: process.env.FIREBASE_PROJECT_ID } : {}),
+    ...(process.env.FIREBASE_STORAGE_BUCKET ? { storageBucket: process.env.FIREBASE_STORAGE_BUCKET } : {}),
   });
 
   return {
