@@ -28,3 +28,5 @@ export interface MovementBatch {
   lastSequence: number;
   events: MovementEvent[];
 }
+
+export { productEvidence, evidenceNumber, type ProductEvidence } from './product-evidence.js';

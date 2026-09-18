@@ -61,7 +61,8 @@ export default function StoreCaptureForm() {
   const [preflight, setPreflight] = useState<Preflight | null>(null);
   const [selectedExistingStoreId, setSelectedExistingStoreId] = useState<string | null>(null);
   const [confirmedNewStore, setConfirmedNewStore] = useState(false);
-  const [photo, setPhoto] = useState<File | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const photoInput = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<{ id: string; workspaceId: string; projectId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -110,7 +111,7 @@ export default function StoreCaptureForm() {
         if (!cancelled) {
           setDraft({ id: result.storeCapture.id, workspaceId: result.storeCapture.workspaceId, projectId: result.storeCapture.projectId });
           setStoreName(result.storeCapture.observedName ?? '');
-          setPhoto(null);
+          setPhotoFiles([]);
           setMessage(`Returned by QA: ${result.storeCapture.correctionReason ?? 'Replace the evidence and submit the store again.'}`);
         }
       } catch (error) { if (!cancelled) setMessage(error instanceof Error ? error.message : 'The returned capture could not be opened.'); }
@@ -168,7 +169,7 @@ export default function StoreCaptureForm() {
     event.preventDefault();
     if (!assignmentId) return setMessage('Open store capture from an authorised assignment.');
     if (!location || !preflight?.allowed) return setMessage('Pass the location and identity check before saving.');
-    if (!photo) return setMessage('Take or choose a storefront photo before saving.');
+    if (!photoFiles.length) return setMessage('Take or choose a storefront photo before saving.');
     const form = new FormData(event.currentTarget);
     const brandProducts = formConfig.form.templateId === 'STANDARD_FMCG' ? brandRows.map((row) => {
       const purchasePrice = parsePrice(form.get(`purchasePrice-${row.id}`));
@@ -205,12 +206,14 @@ export default function StoreCaptureForm() {
       }
       const storage = getFirebaseClientStorage();
       if (!storage) throw new Error('Photo storage is not configured for this build.');
-      const digest = await sha256(photo);
-      const extension = photo.name.split('.').pop()?.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
-      const storageObjectPath = `workspaces/${activeDraft.workspaceId}/projects/${activeDraft.projectId}/captures/${activeDraft.id}/storefront.${extension}`;
-      setMessage('Uploading storefront photo…');
-      await uploadBytes(ref(storage, storageObjectPath), photo, { contentType: photo.type || 'image/jpeg', customMetadata: { sha256: digest } });
-      const photos = [{ storageObjectPath, sha256: digest, capturedAt: new Date().toISOString() }];
+      const photos = [];
+      for (const [index, photo] of photoFiles.entries()) {
+        const digest = await sha256(photo);
+        const storageObjectPath = `workspaces/${activeDraft.workspaceId}/projects/${activeDraft.projectId}/captures/${activeDraft.id}/evidence-${digest}`;
+        setMessage(`Uploading photo ${index + 1} of ${photoFiles.length}…`);
+        await uploadBytes(ref(storage, storageObjectPath), photo, { contentType: photo.type || 'image/jpeg', customMetadata: { sha256: digest } });
+        photos.push({ storageObjectPath, sha256: digest, capturedAt: new Date().toISOString() });
+      }
       setMessage('Running final automated checks…');
       await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}`, 'PATCH', { ...baseBody, photos });
       const submitted = await request(`/api/v1/store-captures/${encodeURIComponent(activeDraft.id)}/submit`, 'POST');
@@ -255,7 +258,7 @@ export default function StoreCaptureForm() {
 
     {preflight?.allowed ? <>
           <section className={s.card}><p className={s.eyebrow}>2 · {formConfig.form.templateId === 'STANDARD_FMCG' ? 'Store details and daily sales' : 'Project questionnaire'}</p><p className={s.timeZone}>Times for this project use {formConfig.timeZone}.</p>{formConfig.form.templateId === 'STANDARD_FMCG' ? <><label>Owner or contact name<input name="ownerName" required autoComplete="name" placeholder="Person spoken to" /></label><div className={s.brandRows}>{brandRows.map((row, index) => { const catalogue = formConfig.form.productCatalogue ?? []; const brands = [...new Set(catalogue.map((item) => item.brand))]; const selectedElsewhere = new Set(brandRows.filter((item) => item.id !== row.id).map((item) => `${item.brand}\u0000${item.product}`)); const products = catalogue.filter((item) => item.brand === row.brand && !selectedElsewhere.has(`${item.brand}\u0000${item.product}`)); return <fieldset className={s.brandRow} key={row.id}><legend>Product {index + 1}</legend>{catalogue.length ? <><label>Brand<select name={`brand-${row.id}`} required value={row.brand} onChange={(event) => setBrandRows((current) => current.map((item) => item.id === row.id ? { ...item, brand: event.target.value, product: '' } : item))}><option value="">Select brand</option>{brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}</select></label><label>Product<select name={`product-${row.id}`} required value={row.product} disabled={!row.brand} onChange={(event) => setBrandRows((current) => current.map((item) => item.id === row.id ? { ...item, product: event.target.value } : item))}><option value="">Select product</option>{products.map((item) => <option key={item.product} value={item.product}>{item.product}</option>)}</select></label></> : <><label>Brand<input name={`brand-${row.id}`} required placeholder="Brand name" /></label><label>Product<input name={`product-${row.id}`} required placeholder="Product or pack size" /></label></>}<div className={s.priceGrid}><label>Purchase price<input name={`purchasePrice-${row.id}`} required type="text" inputMode="decimal" placeholder="R 2 000,45" /></label><label>Selling price<input name={`sellingPrice-${row.id}`} required type="text" inputMode="decimal" placeholder="R 2 200,45" /></label></div><label>Daily sales volume<input name={`dailySalesVolume-${row.id}`} required type="number" min="0" step="1" inputMode="numeric" placeholder="Units sold per day" /></label>{brandRows.length > 1 ? <button className={s.removeBrand} type="button" onClick={() => setBrandRows((current) => current.filter((item) => item.id !== row.id))}>Remove product</button> : null}</fieldset>; })}</div><button className={s.secondary} type="button" onClick={() => setBrandRows((current) => [...current, { id: Math.max(...current.map((item) => item.id)) + 1, brand: '', product: '' }])}>＋ Add another product</button></> : null}{formConfig.form.questions.filter((question) => !question.additionalRow).map((question) => <label key={question.id}>{question.label}{question.type === 'select' ? <select name={question.id} required={question.required}><option value="">Select an option</option>{question.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input name={question.id} required={question.required} type="text" inputMode={question.type === 'number' ? 'decimal' : undefined} placeholder={question.type === 'number' ? 'Use comma or full stop for decimals' : undefined} />}</label>)}{formConfig.form.questions.some((question) => question.additionalRow) ? <div className={s.brandRows}>{additionalRows.map((rowId, rowIndex) => <fieldset className={s.brandRow} key={rowId}><legend>Product sales {rowIndex + 1}</legend>{formConfig.form.questions.filter((question) => question.additionalRow).map((question) => <label key={question.id}>{question.label}{additionalQuestionInput(question, rowId)}</label>)}{additionalRows.length > 1 ? <button className={s.removeBrand} type="button" onClick={() => setAdditionalRows((current) => current.filter((id) => id !== rowId))}>Remove product</button> : null}</fieldset>)}</div> : null}{formConfig.form.questions.some((question) => question.additionalRow) ? <button className={s.secondary} type="button" onClick={() => setAdditionalRows((current) => [...current, Math.max(...current) + 1])}>＋ Add product</button> : null}</section>
-      <section className={s.card}><p className={s.eyebrow}>3 · Storefront evidence</p><label>Storefront photo<input required type="file" accept="image/*" capture="environment" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label>{photo ? <p className={s.ready}>✓ {photo.name}</p> : null}</section>
+      <section className={s.card}><p className={s.eyebrow}>3 · Store photo evidence</p><p>Add a storefront photo first, then interior, fridge or product photos. Up to 10 photos, 10 MB each.</p><input ref={photoInput} type="file" accept="image/*" multiple disabled={busy} aria-label="Choose store photos" onChange={event=>{const incoming=Array.from(event.target.files??[]);if(incoming.some(f=>!f.type.startsWith('image/')||f.size>10*1024*1024)){setMessage('Choose images no larger than 10 MB each.');event.target.value='';return;}setPhotoFiles(current=>{const next=[...current,...incoming.filter(f=>!current.some(p=>p.name===f.name&&p.size===f.size&&p.lastModified===f.lastModified))];if(next.length>10){setMessage('A maximum of 10 photos can be added.');return current;}return next;});event.target.value='';}}/><button type="button" className={s.secondary} disabled={busy||photoFiles.length>=10} onClick={()=>photoInput.current?.click()}>＋ Add more photos</button>{photoFiles.map((file,index)=><div key={index}><span>{index+1}. {file.name}{index===0?' · Storefront':''}</span><button type="button" disabled={busy} onClick={()=>setPhotoFiles(current=>current.filter((_,i)=>i!==index))}>Remove photo {index+1}</button></div>)}</section>
       <section className={s.submit}><button type="submit" disabled={busy}>{busy ? 'Saving securely…' : 'Complete store capture'}</button><p>Clean captures proceed automatically to the Premier integration queue. Only exceptional issues are sent to human QA.</p>{message ? <p className={s.message} role="status">{message}</p> : null}</section>
     </> : null}
   </form>;

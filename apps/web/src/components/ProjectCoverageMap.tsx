@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { productEvidence } from '@survey-guru/domain';
 import { createPortal } from 'react-dom';
 import { fieldApiOrigin, getFieldToken, getFieldUserLabel } from '../app/field/map/field-api';
 import styles from './ProjectCoverageMap.module.css';
@@ -384,17 +385,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${integrationState} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
           panel.append(heading, meta);
           if (store.qaReviewRequested) { const pending = document.createElement('p'); pending.textContent = 'Awaiting QA review · ' + (store.qaReviewReason ?? 'Review requested'); pending.style.color = '#b42318'; panel.append(pending); }
-          const answerEntries = Object.entries(store.answers ?? {});
-          const repeatedAnswer = (...names: string[]) => { const wanted = new Set(names.map((name) => name.toLowerCase().replace(/[^a-z0-9]/g, ''))); const found = answerEntries.find(([key]) => wanted.has(key.toLowerCase().replace(/[^a-z0-9]/g, '')))?.[1]; return Array.isArray(found) ? found : []; };
-          const brandProducts = Array.isArray(store.answers?.brandProducts) ? store.answers.brandProducts as Array<Record<string, unknown>> : [];
-          const repeatedBrands = repeatedAnswer('selectBrand', 'brandSelection', 'brand');
-          const repeatedProducts = repeatedAnswer('product');
-          const repeatedSizes = repeatedAnswer('selectProductType', 'productSize');
-          const repeatedPurchase = repeatedAnswer('costPrice', 'purchasePrice');
-          const repeatedSelling = repeatedAnswer('sellingPrice');
-          const repeatedVolume = repeatedAnswer('volume', 'dailyVolume', 'dailySalesVolume');
-          const customProductCount = Math.max(repeatedBrands.length, repeatedProducts.length, repeatedSizes.length, repeatedPurchase.length, repeatedSelling.length, repeatedVolume.length);
-          const productRows = brandProducts.length ? brandProducts : Array.from({ length: customProductCount }, (_, index) => ({ brand: repeatedBrands[index], product: [repeatedProducts[index], repeatedSizes[index]].filter(Boolean).join(' '), purchasePrice: repeatedPurchase[index], sellingPrice: repeatedSelling[index], dailySalesVolume: repeatedVolume[index] }));
+          const productRows = productEvidence(store.answers ?? {});
           if (productRows.length) {
             const productSales = document.createElement('details'); productSales.className = storeStyles.productSales ?? '';
             const productSalesToggle = document.createElement('summary'); productSalesToggle.textContent = '＋ Product sales'; productSales.append(productSalesToggle);

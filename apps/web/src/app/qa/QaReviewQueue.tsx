@@ -48,6 +48,8 @@ function displayValue(value: unknown): string {
 export default function QaReviewQueue({ projectId }: { projectId: string }) {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [photoIndex,setPhotoIndex]=useState(0);
+  useEffect(()=>setPhotoIndex(0),[selectedId]);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const reasonInput = useRef<HTMLTextAreaElement>(null);
   const [actionMessage,setActionMessage]=useState('');
@@ -84,20 +86,23 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let activeUrl: string | null = null;
+    let cancelled=false;
     setPhotoUrl(null);
     if (!selected || selected.photoCount < 1) return;
-    void authorisedFetch(`/api/v1/store-captures/${encodeURIComponent(selected.id)}/qa-photos/0`)
+    void authorisedFetch(`/api/v1/store-captures/${encodeURIComponent(selected.id)}/qa-photos/${photoIndex}`)
       .then(async (response) => {
         if (!response.ok) {
           const result = await response.json().catch(() => ({})) as { message?: string };
           throw new Error(result.message ?? 'The evidence photo could not be opened.');
         }
-        activeUrl = URL.createObjectURL(await response.blob());
+        const blob=await response.blob();
+        if(cancelled)return;
+        activeUrl = URL.createObjectURL(blob);
         setPhotoUrl(activeUrl);
       })
-      .catch((error) => setMessage(error instanceof Error ? error.message : 'The evidence photo could not be opened.'));
-    return () => { if (activeUrl) URL.revokeObjectURL(activeUrl); };
-  }, [selected?.id, selected?.photoCount]);
+      .catch((error) => {if(!cancelled)setMessage(error instanceof Error ? error.message : 'The evidence photo could not be opened.');});
+    return () => { cancelled=true; if (activeUrl) URL.revokeObjectURL(activeUrl); };
+  }, [selected?.id, selected?.photoCount, photoIndex]);
 
   async function decide(decision: Decision) {
     if (!selected || busy) return;
@@ -152,7 +157,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
         {actionMessage && <p role="alert" className={styles.statusMessage}>{actionMessage}</p>}
       {!selected ? <div className={styles.empty}><strong>{loadFailed ? 'The exception queue could not be opened.' : 'No store captures need QA.'}</strong><span>{loadFailed ? 'Check that this signed-in account has the qa.review permission.' : 'Clean captures bypass this queue and proceed to integration automatically.'}</span></div> : <>
         <div className={styles.reviewHead}><div><p className={styles.eyebrow}>Selected store</p><h2>{selected.observedName}</h2></div><span className={!selected.qaReviewRequested && selected.status === 'VERIFIED' ? styles.verified : styles.pending}>{selected.qaReviewRequested ? 'Awaiting QA review' : selected.status === 'REJECTED' ? 'Rejected' : selected.status === 'VERIFIED' ? 'Verified' : 'Awaiting QA'}</span></div>
-        <div className={styles.evidence}>{photoUrl ? <img src={photoUrl} alt={`Storefront evidence for ${selected.observedName}`} /> : <div>Loading protected photo evidence…</div>}</div>
+        {selected.photoCount > 1 && <div aria-label="Evidence photos">{Array.from({length:selected.photoCount},(_,i)=><button type="button" key={i} aria-pressed={i===photoIndex} onClick={()=>setPhotoIndex(i)}>Photo {i+1}</button>)}</div>}<div className={styles.evidence}>{photoUrl ? <img src={photoUrl} alt={`Storefront evidence for ${selected.observedName}`} /> : <div>Loading protected photo evidence…</div>}</div>
         <dl className={styles.details}>
           <div><dt>GPS</dt><dd>{selected.location?.latitude?.toFixed(5) ?? '—'}, {selected.location?.longitude?.toFixed(5) ?? '—'}</dd></div>
           <div><dt>Accuracy</dt><dd>{selected.location?.accuracyMetres === undefined ? '—' : `±${Math.round(selected.location.accuracyMetres)} m`}</dd></div>
