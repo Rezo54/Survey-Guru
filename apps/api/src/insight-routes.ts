@@ -24,16 +24,17 @@ export function registerInsightRoutes(app: FastifyInstance) {
     const assignments = assignmentsSnapshot.docs.filter(d => d.get('workspaceId') === authority.workspaceId && (!request.query.area || d.get('areaId') === request.query.area) && (!isSupervisorOnly || areaIds.has(d.get('areaId'))));
     const assignmentIds = new Set(assignments.map(d => d.id));
     const captures = capturesSnapshot.docs.filter(d => d.get('workspaceId') === authority.workspaceId && d.get('status') !== 'DRAFT' && ((!request.query.area && !isSupervisorOnly) || assignmentIds.has(d.get('assignmentId'))));
+    const questions = project.get('storeCaptureForm')?.questions ?? [];
     const timeZone = project.get('timeZone') ?? 'Africa/Johannesburg';
     const day = (value: string) => { const d=new Date(value); if(!Number.isFinite(d.getTime()))return '';const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);return ['year','month','day'].map(k=>parts.find(p=>p.type===k)?.value).join('-'); };
     const reviewDate = request.query.date || day(new Date().toISOString());
     if(!/^\d{4}-\d{2}-\d{2}$/.test(reviewDate)) throw new AuthorisationError('Choose a review date in YYYY-MM-DD format.');
-    const dailyReview=captures.filter(d=>day(d.get('submittedAt')??d.get('createdAt')??'')===reviewDate).map(d=>({id:d.id,name:d.get('observedName')??'Unnamed store',status:d.get('status'),awaitingQa:d.get('qaReviewRequested')===true,photoCount:Array.isArray(d.get('photos'))?d.get('photos').length:0,products:productEvidence(d.get('answers')??{}),answers:d.get('answers')??{}}));
+    const dailyReview=captures.filter(d=>day(d.get('submittedAt')??d.get('createdAt')??'')===reviewDate).map(d=>({id:d.id,name:d.get('observedName')??'Unnamed store',status:d.get('status'),awaitingQa:d.get('qaReviewRequested')===true,photoCount:Array.isArray(d.get('photos'))?d.get('photos').length:0,products:productEvidence(d.get('answers')??{}, questions),answers:d.get('answers')??{}}));
     const statuses: Record<string, number> = {}; const brands = new Map<string, number>();
     for (const capture of captures) {
       const status = String(capture.get('status')); statuses[status] = (statuses[status] ?? 0) + 1;
       if (!['VERIFIED','READY_FOR_EXPORT','SYNCED'].includes(status) || capture.get('qaReviewRequested') === true) continue;
-      const products = productEvidence(capture.get('answers') ?? {});
+      const products = productEvidence(capture.get('answers') ?? {}, questions);
       const names = new Set<string>(Array.isArray(products) ? products.map(p => p?.brand).filter((b): b is string => typeof b === 'string') : []);
       for (const brand of names) brands.set(brand, (brands.get(brand) ?? 0) + 1);
     }

@@ -37,7 +37,7 @@ type CoverageResponse = {
   customerScope?: 'SELECTED_PROJECT' | 'ALL_AUTHORISED_PROJECTS';
   message?: string;
 };
-type CapturedStore = { qaReviewRequested?: boolean; qaReviewReason?: string | null; qaReviewRequestedAt?: string | null; captureId: string; projectId?: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
+type CapturedStore = { qaReviewRequested?: boolean; qaReviewReason?: string | null; qaReviewRequestedAt?: string | null; captureId: string; projectId?: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; products?: ReturnType<typeof productEvidence>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -385,7 +385,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${integrationState} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
           panel.append(heading, meta);
           if (store.qaReviewRequested) { const pending = document.createElement('p'); pending.textContent = 'Awaiting QA review · ' + (store.qaReviewReason ?? 'Review requested'); pending.style.color = '#b42318'; panel.append(pending); }
-          const productRows = productEvidence(store.answers ?? {});
+          const productRows = store.products ?? productEvidence(store.answers ?? {});
           if (productRows.length) {
             const productSales = document.createElement('details'); productSales.className = storeStyles.productSales ?? '';
             const productSalesToggle = document.createElement('summary'); productSalesToggle.textContent = '＋ Product sales'; productSales.append(productSalesToggle);

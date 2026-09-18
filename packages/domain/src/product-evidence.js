@@ -9,9 +9,14 @@ export function evidenceNumber(value) {
     const result = Number(normal);
     return Number.isFinite(result) && result >= 0 ? result : null;
 }
-export function productEvidence(answers = {}) {
+export function productEvidence(answers = {}, questions = []) {
     const key = (s)=>s.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const get = (source, names)=>Object.entries(source).find(([k])=>names.includes(key(k)))?.[1];
+    const get = (source, names)=>{
+        const direct = Object.entries(source).find(([k])=>names.includes(key(k)));
+        if (direct) return direct[1];
+        const question = questions.find(q => q && typeof q.id === 'string' && typeof q.label === 'string' && names.includes(key(q.label)) && Object.hasOwn(source, q.id));
+        return question ? source[question.id] : undefined;
+    };
     const brands = [
         'brand',
         'selectbrand',
@@ -32,13 +37,13 @@ export function productEvidence(answers = {}) {
         'buyingprice',
         'buyprice',
         'purchasepricer',
-        'costpricer'
+        'costpricer', 'purchasepricezar', 'costpricezar', 'purchasepriceperunit', 'buyingpricer'
     ];
     const selling = [
         'sellingprice',
         'sellprice',
         'retailprice',
-        'sellingpricer'
+        'sellingpricer', 'sellingpricezar', 'sellingpriceperunit', 'retailpricer'
     ];
     const volumes = [
         'volume',

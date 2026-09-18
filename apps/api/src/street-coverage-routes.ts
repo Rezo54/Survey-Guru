@@ -1,3 +1,4 @@
+import { productEvidence } from '../../../packages/domain/src/product-evidence.js';
 import type { FastifyInstance } from 'fastify';
 import { verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, requirePermission, requireProjectScope, resolveAuthority } from './authority.js';
@@ -71,6 +72,9 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-CA', { timeZone: projectTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date) : '';
     };
     const today = projectDay(new Date().toISOString());
+    const captureProjectIds = [...new Set(authorisedCaptures.map(d => String(d.get('projectId'))))];
+    const captureProjects = await Promise.all(captureProjectIds.map(id => id === project.id ? Promise.resolve(project) : firestore.collection('projects').doc(id).get()));
+    const questionsByProject = new Map(captureProjects.filter(p => p.exists && p.get('workspaceId') === authority.workspaceId).map(p => [p.id, p.get('storeCaptureForm')?.questions ?? []]));
     const capturedStores = authorisedCaptures
       .filter((document) => ['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(String(document.get('status'))))
       .map((document) => ({
@@ -84,6 +88,7 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         qaReviewRequestedAt: document.get('qaReviewRequestedAt') ?? null,
         location: document.get('location'),
         answers: document.get('answers'),
+        products: productEvidence(document.get('answers') ?? {}, questionsByProject.get(String(document.get('projectId'))) ?? []),
         capturerUserId: document.get('capturerUserId'),
         capturerName: capturerNames.get(String(document.get('capturerUserId'))) ?? document.get('capturerUserId'),
         capturedAt: document.get('submittedAt') ?? document.get('updatedAt'),
