@@ -5,3 +5,6 @@
 @media(max-width:620px){.googlePlaceSearchOpen .googlePlaceSearchPanel{width:min(250px,calc(100vw - 126px))}.expanded .googlePlaceSearchOpen .googlePlaceSearchPanel{width:min(300px,calc(100vw - 110px))}}
 .legend .mapMetric{gap:4px;padding:5px 9px;border:1px solid var(--sg-border-info, #315968);border-radius:999px;background:var(--sg-surface-info, #102d38);color:var(--sg-text, #d9ebe7);white-space:nowrap}.mapMetric strong{color:var(--sg-text-success, #18dda5);font-size:.78rem}
 .liveLocationPin strong{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);max-width:180px;padding:4px 8px;border:1px solid var(--sg-border, rgba(255,255,255,.35));border-radius:999px;background:var(--sg-surface-info, rgba(5,25,35,.92));color:var(--sg-text, #fff);box-shadow:0 2px 8px var(--sg-shadow, rgba(0,0,0,.35));font:700 11px/1.2 system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.liveLocationLabel{transform:translateY(-24px);padding:3px 7px;border-radius:999px;background:rgba(5,25,35,.9);text-shadow:0 1px 2px #000}
+
+.googlePlaceSearchButton,.locationControl { width:58px!important; height:58px!important; min-width:58px; font-size:34px!important; display:grid; place-items:center; }
+.googlePlaceSearchButton span { font-size:38px; line-height:1; }
