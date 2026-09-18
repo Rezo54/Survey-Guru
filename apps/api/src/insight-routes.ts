@@ -1,3 +1,4 @@
+import { summariseStoreEvidence } from './store-insights.js';
 import { productEvidence } from '../../../packages/domain/src/product-evidence.js';
 import type { FastifyInstance } from 'fastify';
 import { verifyRequestIdentity } from './auth.js';
@@ -47,6 +48,7 @@ export function registerInsightRoutes(app: FastifyInstance) {
       statusCounts: statuses, brandPerformance: [...brands].sort((a,b) => b[1] - a[1]).map(([brand, stores]) => ({ brand, stores })),
       fieldActivity: sessionsSnapshot.docs.filter(d => d.get('workspaceId') === authority.workspaceId && assignmentIds.has(d.get('assignmentId'))).map(d => ({ id: d.id, areaName: d.get('areaName'), state: d.get('state'), acceptedPoints: d.get('acceptedEvidenceCount') ?? 0, lastEvidenceAt: d.get('lastEvidenceAt') ?? null })),
       dailyReview, reviewDate, timeZone,
+      storeInsights: summariseStoreEvidence(captures.map(d=>({id:d.id,accepted:['VERIFIED','READY_FOR_EXPORT','SYNCED'].includes(d.get('status'))&&d.get('qaReviewRequested')!==true,day:day(d.get('submittedAt')??d.get('createdAt')??''),products:productEvidence(d.get('answers')??{},questions)})),reviewDate),
       generatedAt: new Date().toISOString() };
   });
 }

@@ -1,3 +1,4 @@
+import { PhotoStorageError } from './photo-storage.js';
 import { parseMovement, movementKey, movementFingerprint, validateMovement, type Point } from './movement-input.js';
 import Fastify from 'fastify';
 import { registerOperationsRoutes } from './operations-routes.js';
@@ -21,6 +22,7 @@ app.addHook('onRequest', async (request, reply) => {
 });
 
 app.setErrorHandler((error, _request, reply) => {
+  if (error instanceof PhotoStorageError) { app.log.error(error); return reply.code(error.statusCode).header('Cache-Control','no-store').send({error:error.code,message:error.message}); }
   if (error instanceof AuthenticationError) return reply.code(error.statusCode).send({ error: 'unauthenticated', message: error.message });
   if (error instanceof AuthorisationError) return reply.code(error.statusCode).send({ error: 'forbidden', message: error.message });
   if (error instanceof StoreCaptureRequestError) return reply.code(error.statusCode).send({ error: 'invalid_store_capture', message: error.message });

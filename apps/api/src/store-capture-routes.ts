@@ -1,3 +1,4 @@
+import { readPhotoStorage } from './photo-storage.js';
 import { persistStoreReferral } from './store-review-referral.js';
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
@@ -203,14 +204,14 @@ async function verifyStoredPhotos(storage: ReturnType<typeof getFirebaseAdminSer
   for (const photo of photos) {
     try {
       const file = bucket.file(photo.storageObjectPath);
-      const [metadata] = await file.getMetadata();
+      const [metadata] = await readPhotoStorage(()=>file.getMetadata());
       if (!String(metadata.contentType ?? '').startsWith('image/')) issues.push('Store photo evidence must be an image.');
       const size = Number(metadata.size);
       if (!Number.isFinite(size) || size <= 0) issues.push('Store photo evidence is empty.');
       else if (size > 10 * 1024 * 1024) issues.push('Store photo evidence exceeds the 10 MB limit.');
       if (metadata.metadata?.sha256 !== photo.sha256) issues.push('Store photo evidence hash does not match the uploaded object.');
       else if (size > 0 && size <= 10 * 1024 * 1024) {
-        const [contents] = await file.download();
+        const [contents] = await readPhotoStorage(()=>file.download());
         const actualSha256 = createHash('sha256').update(contents).digest('hex');
         if (actualSha256 !== photo.sha256.toLowerCase()) issues.push('Store photo evidence content failed its integrity check.');
       }
@@ -319,11 +320,11 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
     if (!bucketName) throw new StoreCaptureRequestError('FIREBASE_STORAGE_BUCKET is not configured.');
     const file = storage.bucket(bucketName).file(photo.storageObjectPath);
-    const [metadata] = await file.getMetadata();
+    const [metadata] = await readPhotoStorage(()=>file.getMetadata());
     const contentType = String(metadata.contentType ?? '');
     const size = Number(metadata.size);
     if (!contentType.startsWith('image/') || !Number.isFinite(size) || size <= 0 || size > 10 * 1024 * 1024) throw new StoreCaptureRequestError('Store photo evidence is not a valid image.');
-    const [contents] = await file.download();
+    const [contents] = await readPhotoStorage(()=>file.download());
     if (createHash('sha256').update(contents).digest('hex') !== photo.sha256.toLowerCase()) throw new StoreCaptureRequestError('Store photo evidence failed its integrity check.');
     return reply.header('Content-Type', contentType).header('Cache-Control', 'private, no-store').send(contents);
   });
@@ -385,13 +386,13 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
     if (!bucketName) throw new StoreCaptureRequestError('FIREBASE_STORAGE_BUCKET is not configured.');
     const file = storage.bucket(bucketName).file(photo.storageObjectPath);
-    const [metadata] = await file.getMetadata();
+    const [metadata] = await readPhotoStorage(()=>file.getMetadata());
     const contentType = String(metadata.contentType ?? '');
     const size = Number(metadata.size);
     if (!contentType.startsWith('image/') || !Number.isFinite(size) || size <= 0 || size > 10 * 1024 * 1024) {
       throw new StoreCaptureRequestError('Store photo evidence is not a valid reviewable image.');
     }
-    const [contents] = await file.download();
+    const [contents] = await readPhotoStorage(()=>file.download());
     const actualSha256 = createHash('sha256').update(contents).digest('hex');
     if (actualSha256 !== photo.sha256.toLowerCase()) throw new StoreCaptureRequestError('Store photo evidence failed its integrity check.');
     return reply.header('Content-Type', contentType).header('Cache-Control', 'private, no-store').send(contents);

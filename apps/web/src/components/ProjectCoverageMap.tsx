@@ -405,18 +405,24 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
           if (store.photoCount > 0) {
             const gallery = document.createElement('div'); gallery.className = storeStyles.storeGallery ?? '';
             const loading = document.createElement('span'); loading.textContent = `Loading ${store.photoCount} photo${store.photoCount === 1 ? '' : 's'}…`; gallery.append(loading); panel.append(gallery);
-            void (async () => {
-              try {
-                const token = await getFieldToken();
-                const photos = await Promise.all(Array.from({ length: store.photoCount }, async (_, index) => {
-                  const photoProjectId = store.projectId ?? projectId;
-                  const response = await fetch(`${fieldApiOrigin()}/api/v1/projects/${encodeURIComponent(photoProjectId)}/store-captures/${encodeURIComponent(store.captureId)}/photos/${index}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-                  if (!response.ok) throw new Error('Photo unavailable');
-                  const url = URL.createObjectURL(await response.blob()); photoUrlsRef.current.push(url); return url;
-                }));
-                gallery.replaceChildren(...photos.map((url, index) => { const image = document.createElement('img'); image.src = url; image.alt = `${store.name} evidence ${index + 1}`; return image; }));
-              } catch { loading.textContent = 'Photo evidence is temporarily unavailable.'; }
-            })();
+            const loadPhotos = async () => {
+              gallery.replaceChildren();
+              let token:string;
+              try { token=await getFieldToken(); } catch { gallery.textContent='Please sign in again to view photos.'; return; }
+              await Promise.all(Array.from({length:store.photoCount},async(_,index)=>{
+                const slot=document.createElement('div'); slot.textContent='Loading photo '+(index+1)+'…';gallery.append(slot);
+                const load=async()=>{
+                  slot.textContent='Loading photo '+(index+1)+'…';
+                  try {
+                    const response=await fetch(fieldApiOrigin()+'/api/v1/projects/'+encodeURIComponent(store.projectId??projectId)+'/store-captures/'+encodeURIComponent(store.captureId)+'/photos/'+index,{headers:{Authorization:'Bearer '+token},cache:'no-store'});
+                    if(!response.ok){const detail=await response.json().catch(()=>({}));throw new Error('Photo '+(index+1)+' ('+response.status+'): '+(detail.message??'Unable to load evidence.'));}
+                    const url=URL.createObjectURL(await response.blob());photoUrlsRef.current.push(url);
+                    const image=document.createElement('img');image.src=url;image.alt=store.name+' evidence '+(index+1);
+                    image.onerror=()=>{URL.revokeObjectURL(url);slot.textContent='This photo format could not be displayed in this browser.';};slot.replaceChildren(image);
+                  } catch(error) {slot.textContent=error instanceof Error?error.message:'Connection interrupted while loading photo.';const retry=document.createElement('button');retry.type='button';retry.textContent='Retry photo';retry.onclick=()=>void load();slot.append(retry);}
+                };await load();
+              }));
+            };void loadPhotos();
           }
           if (variant === 'project' && coverage?.authority?.canReviewStores) {
             const reviewButton = document.createElement('button'); reviewButton.type = 'button'; reviewButton.className = storeStyles.reviewStoreButton ?? ''; reviewButton.textContent = store.qaReviewRequested ? 'Awaiting QA review' : '⚑ Send to QA review'; reviewButton.disabled = store.qaReviewRequested === true;
