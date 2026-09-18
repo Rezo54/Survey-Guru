@@ -181,7 +181,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
 
   useEffect(() => {
     if (!mapRef.current || mapId) return;
-    mapRef.current.setOptions({ styles: colourTheme === 'light' ? undefined : darkRoadmapStyle });
+    mapRef.current.setOptions({ styles: colourTheme === 'light' ? [] : darkRoadmapStyle });
   }, [colourTheme, mapId]);
 
   const loadCoverage = useCallback(async () => {

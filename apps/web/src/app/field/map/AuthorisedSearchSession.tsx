@@ -57,6 +57,7 @@ export default function AuthorisedSearchSession() {
   const [feedback, setFeedback] = useState<FieldFeedback | null>(null);
 
   const tracker = useRef<ReturnType<typeof createForegroundTracker> | null>(null);
+  const resumeRequested = useRef(false);
   const [tracking, setTracking] = useState<TrackingState>('idle');
   const [trackingMessage, setTrackingMessage] = useState('Start tracking to record progress while this page is visible.');
 
@@ -103,11 +104,13 @@ export default function AuthorisedSearchSession() {
     return () => { cancelled = true; request.abort(); };
   }, [sessionId]);
 
-  async function startSearch() {
+  async function startSearch(resumeTracking = false) {
     setBusy(true);
     setMessage(null);
     try {
-      setSession(await callSession('/start'));
+      const started = await callSession('/start');
+      resumeRequested.current = resumeTracking;
+      setSession(started);
       setFeedback({ title: 'Search started', detail: 'Start foreground tracking, then walk the assigned streets with this page visible.', tone: 'success' });
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search could not be started.');
@@ -148,6 +151,10 @@ export default function AuthorisedSearchSession() {
       },
     });
     tracker.current = controller;
+    if (resumeRequested.current) {
+      resumeRequested.current = false;
+      controller.start();
+    }
     const hide = () => { if (document.visibilityState !== 'visible') controller.stop('Tracking stopped while the page was hidden. Start again when ready.'); };
     const offline = () => controller.stop('Tracking stopped: you are offline. Reconnect, then start again.');
     const leave = () => controller.stop();
@@ -173,17 +180,18 @@ export default function AuthorisedSearchSession() {
     <section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{session.areaName ?? 'Assigned area'} · {session.state ?? 'READY'}</strong></div><div><span>Coverage state</span><strong>{session.coverageState ?? 'UNCOVERED'}</strong></div><div><span>Evidence queue</span><strong>{session.queuedEvidenceCount ?? 0} records</strong></div></section>
     <section className={s.summary}><div><strong>{session.unknownKm ?? 0} km</strong><span>Unknown · persisted</span></div><div><strong>{session.partialKm ?? 0} km</strong><span>Partial · persisted</span></div><div><strong>{session.searchedKm ?? 0} km</strong><span>Searched · persisted</span></div></section>
     {session.projectId ? <SharedStreetCoverageMap projectId={session.projectId} refreshKey={coverageRefresh} {...(session.assignmentId ? { captureHref: `/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}` } : {})} /> : null}
-    <section className={s.action}>
+    <section className={s.action} id="search-controls">
       <p className={s.eyebrow}>Authorised field state</p>
       <h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2>
       <p>{active ? 'Keep this page visible and your screen unlocked while tracking. Confirmed street coverage is shared with the project team.' : 'Start when you are ready to walk the assigned area.'}</p>
-      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={startSearch} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={() => tracking === 'tracking' ? tracker.current?.stop() : tracker.current?.start()} disabled={busy || !active || session.id !== sessionId}>{tracking === 'tracking' ? 'Stop tracking' : 'Start foreground tracking'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
+      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={() => void startSearch()} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={() => tracking === 'tracking' ? tracker.current?.stop() : tracker.current?.start()} disabled={busy || !active || session.id !== sessionId}>{tracking === 'tracking' ? 'Stop tracking' : 'Start foreground tracking'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
       <p role="status" aria-live="polite">{trackingMessage}</p>
       <p className={s.subtle}>Foreground tracking needs an internet connection. It stops when you leave this page or lock your screen. Stopping GPS does not end your search session.</p>
       {message ? <p className={s.subtle}>{message}</p> : null}
       {visibleFeedback ? <div className={`${feedbackStyles.captureFeedback} ${feedbackStyles[visibleFeedback.tone]}`} role="status"><span>{feedbackIcon(visibleFeedback.tone)}</span><div><strong>{visibleFeedback.title}</strong><p>{visibleFeedback.detail}</p></div></div> : null}
       {(evidence || traversal) ? <details className={feedbackStyles.technical}><summary>Technical evidence details</summary>{evidence ? <p>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded.</p> : null}{traversal ? <p>Candidate traversal: {traversal.supportedTraversalKm.toFixed(3)} km across {traversal.supportedSegmentCount} supported segment{traversal.supportedSegmentCount === 1 ? '' : 's'} · {traversal.derivationStatus.replaceAll('_', ' ').toLowerCase()}.</p> : null}</details> : null}
     </section>
+    <section className={s.action}><p className={s.eyebrow}>Next best action · Coverage evidence</p><h2>Search the assigned geography</h2><p>Resume foreground tracking after a store visit. Keep this page visible and the screen unlocked while you walk.</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={() => active ? tracker.current?.start() : void startSearch(true)} disabled={busy || tracking === 'tracking' || session.id !== sessionId || !['READY', 'PAUSED', 'ACTIVE_SEARCH'].includes(session.state ?? '')}>{tracking === 'tracking' ? 'Search tracking active' : busy ? 'Resuming…' : 'Resume search'}</button><Link className={s.secondary} href="/field">Back to Today</Link></div></section>
     {movement.length ? <section className={s.action} aria-label="Recent field progress"><div className={feedbackStyles.activityHeader}><div><p className={s.eyebrow}>Recent progress</p><h2>What the app recorded</h2></div><span>Latest {Math.min(movement.length, 5)}</span></div><div className={feedbackStyles.tableWrap}><table className={feedbackStyles.activityTable}><thead><tr><th>Time</th><th>Result</th><th>What this means</th></tr></thead><tbody>{movement.slice(0, 5).map((event) => { const result = describeMovement(event); return <tr key={event.id}><td>{new Date(event.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td><td><span className={`${feedbackStyles.resultPill} ${feedbackStyles[result.tone]}`}>{result.title}</span></td><td>{result.detail}</td></tr>; })}</tbody></table></div></section> : null}
   </>;
 }

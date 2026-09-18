@@ -1,4 +1,4 @@
-.accessCard { max-width: 720px; margin: 10vh auto; padding: 32px; border: 1px solid #174657; border-radius: 18px; background: #082331; }
+.accessCard { max-width: 720px; margin: 10vh auto; padding: 32px; border: 1px solid var(--sg-border-info, #174657); border-radius: 18px; background: var(--sg-surface-info, #082331); }
 .accessCard h1 { font-size: clamp(2rem, 5vw, 4rem); margin: 8px 0 16px; }
-.accessCard p { color: #9ab7b2; line-height: 1.6; }
+.accessCard p { color: var(--sg-muted, #9ab7b2); line-height: 1.6; }
 .accessCard a { display: inline-block; margin-top: 18px; padding: 13px 17px; border-radius: 10px; background: #18dda5; color: #03131e; text-decoration: none; font-weight: 850; }

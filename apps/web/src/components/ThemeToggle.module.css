@@ -1,4 +1,4 @@
-.toggle { position: fixed; z-index: 10050; top: max(14px, env(safe-area-inset-top)); right: 14px; width: 38px; height: 38px; padding: 0; border: 1px solid #456b77; border-radius: 50%; background: rgb(5 25 35 / .88); color: #eaf8f4; box-shadow: 0 4px 16px rgb(0 0 0 / .2); backdrop-filter: blur(12px); font: 800 1rem/1 system-ui,sans-serif; cursor: pointer; }
-.toggle:hover { border-color: #35d7ad; background: #123a38; }
+.toggle { position: fixed; z-index: 10050; top: max(14px, env(safe-area-inset-top)); right: 14px; width: 38px; height: 38px; padding: 0; border: 1px solid var(--sg-border-info, #456b77); border-radius: 50%; background: var(--sg-surface-info, rgb(5 25 35 / .88)); color: var(--sg-text, #eaf8f4); box-shadow: 0 4px 16px var(--sg-shadow, rgb(0 0 0 / .2)); backdrop-filter: blur(12px); font: 800 1rem/1 system-ui,sans-serif; cursor: pointer; }
+.toggle:hover { border-color: var(--sg-border-success, #35d7ad); background: var(--sg-surface-info, #123a38); }
 :global(html[data-theme='light']) .toggle { border-color: #b4c5bf; background: rgb(255 255 255 / .92); color: #24483d; box-shadow: 0 4px 15px rgb(35 65 55 / .15); }
 @media (max-width: 560px) { .toggle { top: max(10px, env(safe-area-inset-top)); right: 10px; width: 42px; height: 42px; } }

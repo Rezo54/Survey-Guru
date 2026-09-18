@@ -4,8 +4,8 @@
     height: 100vh;
     box-sizing: border-box;
     padding: 0 14px 18px;
-    background: linear-gradient(180deg, rgba(4, 67, 64, .99) 0%, rgba(3, 77, 72, .98) 42%, rgba(3, 62, 60, .98) 100%);
-    border-right: 1px solid rgba(114, 211, 190, .2);
+    background: linear-gradient(180deg, var(--sg-surface-info, rgba(4, 67, 64, .99)) 0%, var(--sg-surface-success, rgba(3, 77, 72, .98)) 42%, var(--sg-surface-info, rgba(3, 62, 60, .98)) 100%);
+    border-right: 1px solid var(--sg-border-success, rgba(114, 211, 190, .2));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -60,7 +60,7 @@
     height: 105px;
     margin: 0;
     padding: 8px 0;
-    border-bottom: 1px solid rgba(192, 239, 228, .26);
+    border-bottom: 1px solid var(--sg-border-info, rgba(192, 239, 228, .26));
 }
 
 .navGroup:last-child {
@@ -80,7 +80,7 @@
     border: 1px solid transparent;
     border-radius: 9px;
     text-decoration: none;
-    color: #edf8f5;
+    color: var(--sg-text, #edf8f5);
     font-size: .78rem;
     font-weight: 650;
     line-height: 1;
@@ -93,7 +93,7 @@
     width: 24px;
     height: 24px;
     margin: 0;
-    color: #f4fffc;
+    color: var(--sg-text, #f4fffc);
     font-size: 1.08rem;
     font-weight: 400;
     line-height: 24px;
@@ -111,13 +111,13 @@
 
 .nav a:hover {
     background: rgba(20, 153, 133, .24);
-    border-color: rgba(100, 224, 195, .12);
+    border-color: var(--sg-border-success, rgba(100, 224, 195, .12));
 }
 
 .nav .active {
     background: linear-gradient(90deg, rgba(22, 151, 132, .72), rgba(19, 130, 119, .56));
-    border-color: rgba(110, 238, 207, .12);
-    color: #fff;
+    border-color: var(--sg-border-success, rgba(110, 238, 207, .12));
+    color: var(--sg-text, #fff);
     box-shadow: none;
 }
 
@@ -128,7 +128,7 @@
     right: -20px;
     top: 38%;
     bottom: 70px;
-    background: linear-gradient(180deg, rgba(3, 62, 60, .98) 0%, rgba(3, 62, 60, .76) 18%, rgba(3, 62, 60, .22) 45%, rgba(3, 62, 60, .72) 84%, rgba(3, 62, 60, .98) 100%), url('/brand/table-mountain-sidebar.png') 50% 58%/cover no-repeat;
+    background: linear-gradient(180deg, var(--sg-surface-info, rgba(3, 62, 60, .98)) 0%, var(--sg-surface-info, rgba(3, 62, 60, .76)) 18%, var(--sg-surface-info, rgba(3, 62, 60, .22)) 45%, var(--sg-surface-info, rgba(3, 62, 60, .72)) 84%, var(--sg-surface-info, rgba(3, 62, 60, .98)) 100%), url('/brand/table-mountain-sidebar.png') 50% 58%/cover no-repeat;
     opacity: .24;
     filter: saturate(.75) contrast(1.02);
     pointer-events: none;

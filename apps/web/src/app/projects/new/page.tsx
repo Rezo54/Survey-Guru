@@ -109,11 +109,13 @@ export default function NewProjectPage() {
   useEffect(() => {
     if (adminAccess !== 'allowed' || !apiKey || !hostRef.current) return;
     let cancelled = false;
+    const applyTheme = () => mapRef.current?.setOptions({ styles: document.documentElement.dataset.theme === 'light' ? [] : darkRoadmapStyle });
+    window.addEventListener('survey-guru-theme', applyTheme);
     setMapState('loading');
     void loadGoogleMaps(apiKey).then(() => {
       if (cancelled || !hostRef.current || !window.google?.maps) return;
       const maps = window.google.maps;
-      const map = new maps.Map(hostRef.current, { center: { lat: -26.2455, lng: 27.8628 }, zoom: 13, styles: darkRoadmapStyle, streetViewControl: false, mapTypeControl: true, fullscreenControl: true, gestureHandling: 'greedy' });
+      const map = new maps.Map(hostRef.current, { center: { lat: -26.2455, lng: 27.8628 }, zoom: 13, styles: document.documentElement.dataset.theme === 'light' ? [] : darkRoadmapStyle, streetViewControl: false, mapTypeControl: true, fullscreenControl: true, gestureHandling: 'greedy' });
       const polygon = new maps.Polygon({ map, paths: [], strokeColor: '#18dda5', strokeOpacity: 1, strokeWeight: 3, fillColor: '#18dda5', fillOpacity: .12, zIndex: 4 });
       mapRef.current = map;
       polygonRef.current = polygon;
@@ -141,7 +143,7 @@ export default function NewProjectPage() {
       });
       setMapState('ready');
     }).catch((error) => { setMapState('error'); setMessage(error instanceof Error ? error.message : 'Google Maps failed to load.'); });
-    return () => { cancelled = true; clickListenerRef.current?.remove(); placeListenerRef.current?.remove(); searchControlRef.current?.remove(); searchControlRef.current = null; polygonRef.current?.setMap(null); };
+    return () => { cancelled = true; window.removeEventListener('survey-guru-theme', applyTheme); clickListenerRef.current?.remove(); placeListenerRef.current?.remove(); searchControlRef.current?.remove(); searchControlRef.current = null; polygonRef.current?.setMap(null); };
   }, [adminAccess, apiKey]);
 
   async function publishProject() {
