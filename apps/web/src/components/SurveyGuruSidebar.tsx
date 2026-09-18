@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import LogoutButton from './LogoutButton';
 import { useEffect, useState } from 'react';
 import { fieldApiOrigin, getFieldToken } from '../app/field/map/field-api';
 import SurveyGuruSidebarFooter from './SurveyGuruSidebarFooter';
@@ -92,7 +93,7 @@ export default function SurveyGuruSidebar({ active }: SurveyGuruSidebarProps) {
             </div>
 
             <div className={styles.tableMountain} aria-hidden="true" />
-            <SurveyGuruSidebarFooter />
+            <LogoutButton /><SurveyGuruSidebarFooter />
         </aside>
     );
 }

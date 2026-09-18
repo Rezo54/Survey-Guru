@@ -11,7 +11,7 @@ function preferredTheme(): Theme {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved === 'dark' || saved === 'light') return saved;
   } catch { /* Theme switching remains available when storage is blocked. */ }
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  return 'dark';
 }
 
 export default function ThemeToggle() {

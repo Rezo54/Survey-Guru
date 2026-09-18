@@ -12,7 +12,7 @@ export default function SignInPage() {
     try {
       const auth = getFirebaseClientAuth(); if (!auth) throw new Error('Sign-in is not configured yet. Contact your administrator.');
       if (signup) { const result = await createUserWithEmailAndPassword(auth,email,password); await sendEmailVerification(result.user); await signOut(auth); setMessage('Account created. Verify your email, then ask your administrator to activate your role.'); setSignup(false); setPassword(''); }
-      else { await signInWithEmailAndPassword(auth,email,password); const me = await api<{ authority:{ permissions:string[] } }>('/me'); const p = me.authority.permissions; window.location.assign(p.includes('report.read') ? '/dashboard' : p.includes('qa.review') ? '/qa' : '/field'); }
+      else { await signInWithEmailAndPassword(auth,email,password); const me = await api<{ authority:{ permissions:string[] } }>('/me'); try { window.localStorage.setItem('survey-guru:theme','dark'); } catch {} document.documentElement.dataset.theme='dark'; const p = me.authority.permissions; window.location.assign(p.includes('report.read') ? '/dashboard' : p.includes('qa.review') ? '/qa' : '/field'); }
     } catch(e) { setMessage((e as Error).message); } finally { setBusy(false); }
   }
   async function reset() { setBusy(true); try { const auth = getFirebaseClientAuth(); if (!auth) throw new Error('Sign-in is not configured.'); await sendPasswordResetEmail(auth,email); setMessage('If this account is eligible, a password reset email will arrive shortly.'); } catch(e) { setMessage((e as Error).message); } finally { setBusy(false); } }
