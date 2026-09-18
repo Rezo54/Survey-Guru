@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@capacitor/core": "8.4.1",
+    "@capgo/background-geolocation": "8.4.6",
     "@survey-guru/api-client": "0.1.0",
     "@survey-guru/capabilities": "0.1.0",
     "@survey-guru/domain": "0.1.0",

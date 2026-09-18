@@ -45,3 +45,5 @@
 
 .reviewStoreButton { margin-top: 7px; padding: 8px 10px; border: 1px solid var(--sg-border-warning, #b16c0d); border-radius: 8px; background: var(--sg-surface, #fff5df); color: var(--sg-text-warning, #6d4000); font: 750 .75rem/1.2 system-ui,sans-serif; cursor: pointer; }
 .reviewStoreButton:disabled { cursor: wait; opacity: .65; }
+
+.advancedReviewMarker { width:18px; height:18px; border-radius:50%; background:#e53935; border:2px solid white; box-shadow:0 1px 5px #0005; }

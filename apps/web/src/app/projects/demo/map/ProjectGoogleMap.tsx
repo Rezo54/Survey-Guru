@@ -19,7 +19,7 @@ const mapTypes: ReadonlyArray<readonly [CoverageMapType, string]> = [
 ];
 type ActiveProject = { id: string; name: string; status: 'active'; publishedAt?: string | null };
 
-export default function ProjectGoogleMap({ classes, projectId }: { classes: ToolbarClasses; projectId: string }) {
+export default function ProjectGoogleMap({ classes, projectId, onProjectChange }: { classes: ToolbarClasses; projectId: string; onProjectChange?: (id: string) => void }) {
   const [activeProjectId, setActiveProjectId] = useState(projectId);
   const [projects, setProjects] = useState<ActiveProject[]>([]);
   const [canCreateProjects, setCanCreateProjects] = useState(false);
@@ -57,6 +57,7 @@ export default function ProjectGoogleMap({ classes, projectId }: { classes: Tool
 
   useEffect(() => {
     window.sessionStorage.setItem('survey-guru:active-project', activeProjectId);
+    onProjectChange?.(activeProjectId);
     const url = new URL(window.location.href); url.searchParams.set('project', activeProjectId); window.history.replaceState({}, '', url);
   }, [activeProjectId]);
 

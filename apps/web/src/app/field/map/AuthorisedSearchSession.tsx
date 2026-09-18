@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { nativeTrackingAvailable, startNativeTracking } from '../../../lib/native-tracking';
 import { createForegroundTracker, type TrackingState } from './foreground-tracker';
 import { useSearchParams } from 'next/navigation';
-import { fieldApiOrigin, getFieldToken } from './field-api';
+import { createMovementQueue, indexedMovementStore, SyncError } from './movement-queue';
+import { fieldApiOrigin, getFieldToken, getFieldUserId } from './field-api';
 import feedbackStyles from './FieldFeedback.module.css';
 import SharedStreetCoverageMap from './SharedStreetCoverageMap';
 import s from './field-map.module.css';
@@ -58,6 +60,10 @@ export default function AuthorisedSearchSession() {
 
   const tracker = useRef<ReturnType<typeof createForegroundTracker> | null>(null);
   const resumeRequested = useRef(false);
+  const [pendingLocations, setPendingLocations] = useState(0);
+  const [native, setNative] = useState(false);
+  useEffect(() => { setNative(nativeTrackingAvailable()); }, []);
+  const [syncMessage, setSyncMessage] = useState('');
   const [tracking, setTracking] = useState<TrackingState>('idle');
   const [trackingMessage, setTrackingMessage] = useState('Start tracking to record progress while this page is visible.');
 
@@ -111,6 +117,7 @@ export default function AuthorisedSearchSession() {
       const started = await callSession('/start');
       resumeRequested.current = resumeTracking;
       setSession(started);
+      if (native && resumeTracking) { resumeRequested.current = false; await startNativeTracking(started.id); }
       setFeedback({ title: 'Search started', detail: 'Start foreground tracking, then walk the assigned streets with this page visible.', tone: 'success' });
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'Store Coverage Search could not be started.');
@@ -122,53 +129,61 @@ export default function AuthorisedSearchSession() {
   useEffect(() => {
     setTracking('idle');
     setTrackingMessage('Start tracking to record progress while this page is visible.');
-    if (!sessionId || session?.id !== sessionId || session.state !== 'ACTIVE_SEARCH') return;
+    if (!sessionId || session?.id !== sessionId || session.state !== 'ACTIVE_SEARCH' || native) return;
     if (!navigator.geolocation) {
       setTrackingMessage('Foreground location is not available in this browser.');
       return;
     }
-    const controller = createForegroundTracker({
-      geolocation: navigator.geolocation,
-      isAvailable: () => document.visibilityState === 'visible' && navigator.onLine,
-      onState: (state, detail) => { setTracking(state); setTrackingMessage(detail); },
-      submit: async (position, signal) => {
-        const token = await getFieldToken();
-        if (signal.aborted) return;
-        const response = await fetch(`${fieldApiOrigin()}/api/v1/search-sessions/${encodeURIComponent(sessionId)}/movement-events`, {
-          method: 'POST', signal,
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ capturedAt: new Date(position.timestamp).toISOString(), latitude: position.coords.latitude, longitude: position.coords.longitude, accuracyMetres: position.coords.accuracy, source: 'pwa_foreground' }),
-        });
-        const body = await response.json() as { movementEvent?: MovementEvent; coverage?: CoverageResult; message?: string };
-        if (signal.aborted) return;
-        if (!response.ok || !body.movementEvent) throw new Error(body.message ?? 'Location upload failed. Check recent progress before restarting tracking.');
-        setFeedback(describeMovement(body.movementEvent, body.coverage));
-        setMovement((previous) => [body.movementEvent!, ...previous].slice(0, 25));
-        setCoverageRefresh((value) => value + 1);
-        await loadMovement(signal);
-        const updated = await callSession('', signal);
-        if (!signal.aborted) setSession(updated);
-      },
-    });
-    tracker.current = controller;
-    if (resumeRequested.current) {
-      resumeRequested.current = false;
-      controller.start();
-    }
-    const hide = () => { if (document.visibilityState !== 'visible') controller.stop('Tracking stopped while the page was hidden. Start again when ready.'); };
-    const offline = () => controller.stop('Tracking stopped: you are offline. Reconnect, then start again.');
-    const leave = () => controller.stop();
-    document.addEventListener('visibilitychange', hide);
-    window.addEventListener('offline', offline);
-    window.addEventListener('pagehide', leave);
-    return () => {
-      controller.stop();
-      tracker.current = null;
-      document.removeEventListener('visibilitychange', hide);
-      window.removeEventListener('offline', offline);
-      window.removeEventListener('pagehide', leave);
-    };
-  }, [sessionId, session?.id, session?.state]);
+    let cancelled = false;
+    let dispose = () => {};
+    void getFieldUserId().then((ownerId) => {
+      if (cancelled) return;
+      const queue = createMovementQueue({
+        store: indexedMovementStore(), ownerId, sessionId,
+        currentOwner: getFieldUserId, online: () => navigator.onLine,
+        onStatus: (count, detail) => { if (!cancelled) { setPendingLocations(count); setSyncMessage(detail); } },
+        send: async (point, signal) => {
+          const token = await getFieldToken();
+          if (signal.aborted) throw new Error('Sync paused.');
+          const response = await fetch(fieldApiOrigin() + '/api/v1/search-sessions/' + encodeURIComponent(sessionId) + '/movement-events', {
+            method: 'POST', signal, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify(point),
+          });
+          const body = await response.json() as { movementEvent?: MovementEvent; coverage?: CoverageResult; message?: string };
+          if (!response.ok || !body.movementEvent) throw new SyncError(body.message ?? 'Location sync could not finish.', response.status);
+          if (cancelled) return;
+          setFeedback(describeMovement(body.movementEvent, body.coverage));
+          setMovement(previous => [body.movementEvent!, ...previous.filter(e => e.id !== body.movementEvent!.id)].slice(0, 25));
+          setCoverageRefresh(value => value + 1);
+          // A failed status refresh must not turn an acknowledged upload into a failure.
+          void loadMovement(signal).catch(() => {});
+        },
+      });
+      const controller = createForegroundTracker({
+        geolocation: navigator.geolocation,
+        isAvailable: () => document.visibilityState === 'visible',
+        onState: (state, detail) => { if (!cancelled) { setTracking(state); setTrackingMessage(detail); } },
+        submit: position => queue.enqueue(position),
+      });
+      tracker.current = controller;
+      if (resumeRequested.current) { resumeRequested.current = false; controller.start(); }
+      const hide = () => { if (document.visibilityState !== 'visible') controller.stop('Tracking paused while this page was hidden. Resume when ready.'); else void queue.flush(); };
+      const sync = () => { void queue.flush(); };
+      const leave = () => controller.stop();
+      const interval = window.setInterval(sync, 15000);
+      document.addEventListener('visibilitychange', hide);
+      window.addEventListener('online', sync);
+      window.addEventListener('offline', sync);
+      window.addEventListener('pagehide', leave);
+      sync();
+      dispose = () => {
+        controller.stop(); queue.dispose(); window.clearInterval(interval); tracker.current = null;
+        document.removeEventListener('visibilitychange', hide);
+        window.removeEventListener('online', sync); window.removeEventListener('offline', sync); window.removeEventListener('pagehide', leave);
+      };
+    }).catch(error => { if (!cancelled) setTrackingMessage(error instanceof Error ? error.message : 'Sign in required.'); });
+    return () => { cancelled = true; dispose(); };
+  }, [sessionId, session?.id, session?.state, native]);
 
   if (!session) return <section className={s.policy}><div><span>Persisted Store Coverage Search</span><strong>{message ?? 'Loading authorised session…'}</strong></div></section>;
   const active = session.state === 'ACTIVE_SEARCH';
@@ -183,15 +198,15 @@ export default function AuthorisedSearchSession() {
     <section className={s.action} id="search-controls">
       <p className={s.eyebrow}>Authorised field state</p>
       <h2>{active ? 'Store Coverage Search active' : 'Ready for Store Coverage Search'}</h2>
-      <p>{active ? 'Keep this page visible and your screen unlocked while tracking. Confirmed street coverage is shared with the project team.' : 'Start when you are ready to walk the assigned area.'}</p>
-      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={() => void startSearch()} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={() => tracking === 'tracking' ? tracker.current?.stop() : tracker.current?.start()} disabled={busy || !active || session.id !== sessionId}>{tracking === 'tracking' ? 'Stop tracking' : 'Start foreground tracking'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
-      <p role="status" aria-live="polite">{trackingMessage}</p>
-      <p className={s.subtle}>Foreground tracking needs an internet connection. It stops when you leave this page or lock your screen. Stopping GPS does not end your search session.</p>
+      <p>{active ? native ? 'The installed app records in the background. Use the tracking banner to stop. Confirmed street coverage is shared with the project team.' : 'Keep this page visible and your screen unlocked while tracking. Confirmed street coverage is shared with the project team.' : 'Start when you are ready to walk the assigned area.'}</p>
+      <div className={s.actionRow}><button className={s.secondary} type="button" onClick={() => void startSearch()} disabled={busy || active}>{active ? 'Search active' : busy ? 'Starting…' : 'Start Store Coverage Search'}</button><button className={s.primary} type="button" onClick={() => native ? void startNativeTracking(session.id).catch(e => setMessage(e.message)) : tracking === 'tracking' ? tracker.current?.stop() : tracker.current?.start()} disabled={busy || !active || session.id !== sessionId}>{native ? 'Start background tracking' : tracking === 'tracking' ? 'Stop tracking' : 'Start foreground tracking'}</button>{session.assignmentId ? <Link className={s.secondary} href={`/field/stores/new?assignment=${encodeURIComponent(session.assignmentId)}&session=${encodeURIComponent(session.id)}`}>Capture a store</Link> : null}</div>
+      {!native && <><p role="status" aria-live="polite">{trackingMessage}</p><p role="status">{pendingLocations} locations awaiting sync · {syncMessage}</p></>}
+      <p className={s.subtle}>GPS points are saved on this device during connection loss and sync automatically. Keep this browser page visible and the screen unlocked. Sync within seven days; do not clear browser storage with pending locations.</p>
       {message ? <p className={s.subtle}>{message}</p> : null}
       {visibleFeedback ? <div className={`${feedbackStyles.captureFeedback} ${feedbackStyles[visibleFeedback.tone]}`} role="status"><span>{feedbackIcon(visibleFeedback.tone)}</span><div><strong>{visibleFeedback.title}</strong><p>{visibleFeedback.detail}</p></div></div> : null}
       {(evidence || traversal) ? <details className={feedbackStyles.technical}><summary>Technical evidence details</summary>{evidence ? <p>Evidence quality: {evidence.acceptedCount} accepted · {evidence.rejectedCount} excluded.</p> : null}{traversal ? <p>Candidate traversal: {traversal.supportedTraversalKm.toFixed(3)} km across {traversal.supportedSegmentCount} supported segment{traversal.supportedSegmentCount === 1 ? '' : 's'} · {traversal.derivationStatus.replaceAll('_', ' ').toLowerCase()}.</p> : null}</details> : null}
     </section>
-    <section className={s.action}><p className={s.eyebrow}>Next best action · Coverage evidence</p><h2>Search the assigned geography</h2><p>Resume foreground tracking after a store visit. Keep this page visible and the screen unlocked while you walk.</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={() => active ? tracker.current?.start() : void startSearch(true)} disabled={busy || tracking === 'tracking' || session.id !== sessionId || !['READY', 'PAUSED', 'ACTIVE_SEARCH'].includes(session.state ?? '')}>{tracking === 'tracking' ? 'Search tracking active' : busy ? 'Resuming…' : 'Resume search'}</button><Link className={s.secondary} href="/field">Back to Today</Link></div></section>
+    <section className={s.action}><p className={s.eyebrow}>Next best action · Coverage evidence</p><h2>Search the assigned geography</h2><p>Resume foreground tracking after a store visit. Keep this page visible and the screen unlocked while you walk.</p><div className={s.actionRow}><button className={s.primary} type="button" onClick={() => active ? native ? void startNativeTracking(session.id).catch(e => setMessage(e.message)) : tracker.current?.start() : void startSearch(true)} disabled={busy || tracking === 'tracking' || session.id !== sessionId || !['READY', 'PAUSED', 'ACTIVE_SEARCH'].includes(session.state ?? '')}>{tracking === 'tracking' ? 'Search tracking active' : busy ? 'Resuming…' : 'Resume search'}</button><Link className={s.secondary} href="/field">Back to Today</Link></div></section>
     {movement.length ? <section className={s.action} aria-label="Recent field progress"><div className={feedbackStyles.activityHeader}><div><p className={s.eyebrow}>Recent progress</p><h2>What the app recorded</h2></div><span>Latest {Math.min(movement.length, 5)}</span></div><div className={feedbackStyles.tableWrap}><table className={feedbackStyles.activityTable}><thead><tr><th>Time</th><th>Result</th><th>What this means</th></tr></thead><tbody>{movement.slice(0, 5).map((event) => { const result = describeMovement(event); return <tr key={event.id}><td>{new Date(event.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td><td><span className={`${feedbackStyles.resultPill} ${feedbackStyles[result.tone]}`}>{result.title}</span></td><td>{result.detail}</td></tr>; })}</tbody></table></div></section> : null}
   </>;
 }

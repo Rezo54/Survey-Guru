@@ -6,6 +6,7 @@ export type SurveyGuruPermission =
   | 'workspace.admin'
   | 'project.read'
   | 'assignment.read'
+  | 'supervisor.review'
   | 'field.capture'
   | 'qa.review'
   | 'coverage.read'
@@ -59,6 +60,10 @@ export async function resolveAuthority(identity: AuthenticatedIdentity): Promise
 
   const projectAccess = await firestore.collection('projectMemberships').where('userId', '==', identity.uid).where('workspaceId', '==', workspaceId).where('status', '==', 'active').get();
   const projectIds = projectAccess.docs.map((document) => document.get('projectId')).filter((projectId): projectId is string => typeof projectId === 'string');
+  if (permissions.includes('workspace.admin') || permissions.includes('qa.review')) {
+    const workspaceProjects = await firestore.collection('projects').where('workspaceId', '==', workspaceId).where('status', '==', 'active').get();
+    for (const project of workspaceProjects.docs) if (!projectIds.includes(project.id)) projectIds.push(project.id);
+  }
 
   const assignmentAccess = await firestore.collection('assignments').where('assignedUserId', '==', identity.uid).where('workspaceId', '==', workspaceId).where('status', '==', 'active').get();
   const assignmentIds = assignmentAccess.docs.filter((document) => projectIds.includes(document.get('projectId'))).map((document) => document.id);

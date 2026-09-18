@@ -36,7 +36,7 @@ type CoverageResponse = {
   customerScope?: 'SELECTED_PROJECT' | 'ALL_AUTHORISED_PROJECTS';
   message?: string;
 };
-type CapturedStore = { captureId: string; projectId?: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
+type CapturedStore = { qaReviewRequested?: boolean; qaReviewReason?: string | null; qaReviewRequestedAt?: string | null; captureId: string; projectId?: string; storeId?: string; name: string; status: 'VERIFIED' | 'READY_FOR_EXPORT' | 'SYNCED'; location: Coordinate; answers?: Record<string, unknown>; capturerUserId?: string; capturerName?: string; capturedAt?: string; capturedLocalTime?: string; projectTimeZone?: string; capturedToday?: boolean; photoCount: number; exportState?: string };
 
 type CoverageColour = keyof typeof colours;
 type RoadLine = { line: any; colour: CoverageColour };
@@ -59,7 +59,7 @@ function coverageSignature(coverage: CoverageResponse): string {
     }).join('|') ?? '';
     return `${segment.projectStreetSegmentId}:${segment.coverageState}:${segment.coverageColour}:${slices}`;
   }).join(';');
-  const stores = (coverage.capturedStores ?? []).map((store) => `${store.captureId}:${store.status}:${store.photoCount}:${store.capturedToday}:${store.capturerUserId}:${store.location.latitude}:${store.location.longitude}`).join(';');
+  const stores = (coverage.capturedStores ?? []).map((store) => `${store.captureId}:${store.status}:${store.qaReviewRequested}:${store.qaReviewReason}:${store.qaReviewRequestedAt}:${store.photoCount}:${store.capturedToday}:${store.capturerUserId}:${store.location.latitude}:${store.location.longitude}`).join(';');
   return `${streets}::${stores}::${coverage.summary.walkedPercent ?? 0}:${coverage.summary.capturedStoreCount ?? 0}:${coverage.summary.capturedStoreScope ?? ''}`;
 }
 export const darkRoadmapStyle = [
@@ -372,17 +372,18 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
         const title = `${store.name} · ${store.capturerName ?? 'Capturer unavailable'}`;
         let marker: any;
         if (mapId && maps.marker?.AdvancedMarkerElement) {
-          const dot = document.createElement('div'); dot.className = store.capturedToday ? (storeStyles.advancedTodayMarker ?? '') : (storeStyles.advancedStoreMarker ?? '');
+          const dot = document.createElement('div'); dot.className = store.qaReviewRequested ? (storeStyles.advancedReviewMarker ?? '') : store.capturedToday ? (storeStyles.advancedTodayMarker ?? '') : (storeStyles.advancedStoreMarker ?? '');
           marker = new maps.marker.AdvancedMarkerElement({ map: storesVisible ? map : null, position, title, zIndex: 12, content: dot });
-        } else marker = new maps.Marker({ map, position, title, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: store.capturedToday ? '#f3b333' : '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: store.capturedToday ? 8 : 7 } });
+        } else marker = new maps.Marker({ map, position, title, visible: storesVisible, zIndex: 12, icon: { path: maps.SymbolPath.CIRCLE, fillColor: store.qaReviewRequested ? '#e53935' : store.capturedToday ? '#f3b333' : '#18dda5', fillOpacity: 1, strokeColor: '#eafff8', strokeWeight: 2, scale: store.capturedToday ? 8 : 7 } });
         const infoWindow = new maps.InfoWindow();
         marker.addListener('click', () => {
           const panel = document.createElement('div'); panel.className = storeStyles.storePopup ?? '';
           const heading = document.createElement('strong'); heading.textContent = store.name;
           const localTime = store.capturedAt ? new Date(store.capturedAt).toLocaleString('en-ZA', { timeZone: store.projectTimeZone ?? 'Africa/Johannesburg', dateStyle: 'medium', timeStyle: 'medium' }) : 'Captured';
-          const integrationState = store.status === 'SYNCED' ? 'Synced' : store.status === 'READY_FOR_EXPORT' ? 'Ready for export' : 'Verified';
+          const integrationState = store.qaReviewRequested ? 'Awaiting QA review' : store.status === 'SYNCED' ? 'Synced' : store.status === 'READY_FOR_EXPORT' ? 'Ready for export' : 'Verified';
           const meta = document.createElement('span'); meta.textContent = `${store.capturedToday ? 'Captured today' : 'Earlier capture'} · ${store.capturerName ?? 'Capturer unavailable'} · ${integrationState} · ${localTime} (${store.projectTimeZone ?? 'project time'})`;
           panel.append(heading, meta);
+          if (store.qaReviewRequested) { const pending = document.createElement('p'); pending.textContent = 'Awaiting QA review · ' + (store.qaReviewReason ?? 'Review requested'); pending.style.color = '#b42318'; panel.append(pending); }
           const answerEntries = Object.entries(store.answers ?? {});
           const repeatedAnswer = (...names: string[]) => { const wanted = new Set(names.map((name) => name.toLowerCase().replace(/[^a-z0-9]/g, ''))); const found = answerEntries.find(([key]) => wanted.has(key.toLowerCase().replace(/[^a-z0-9]/g, '')))?.[1]; return Array.isArray(found) ? found : []; };
           const brandProducts = Array.isArray(store.answers?.brandProducts) ? store.answers.brandProducts as Array<Record<string, unknown>> : [];
@@ -427,7 +428,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
             })();
           }
           if (variant === 'project' && coverage?.authority?.canReviewStores) {
-            const reviewButton = document.createElement('button'); reviewButton.type = 'button'; reviewButton.className = storeStyles.reviewStoreButton ?? ''; reviewButton.textContent = '⚑ Send to QA review';
+            const reviewButton = document.createElement('button'); reviewButton.type = 'button'; reviewButton.className = storeStyles.reviewStoreButton ?? ''; reviewButton.textContent = store.qaReviewRequested ? 'Awaiting QA review' : '⚑ Send to QA review'; reviewButton.disabled = store.qaReviewRequested === true;
             reviewButton.addEventListener('click', () => {
               const reason = window.prompt(`Describe the anomaly found at ${store.name}. This will create a QA exception without deleting its third-party history.`)?.trim();
               if (!reason) return;
@@ -438,7 +439,7 @@ export default function ProjectCoverageMap({ projectId, refreshKey = 0, variant 
                   const response = await fetch(`${fieldApiOrigin()}/api/v1/store-captures/${encodeURIComponent(store.captureId)}/flag-for-review`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
                   const result = await response.json().catch(() => ({})) as { message?: string };
                   if (!response.ok) throw new Error(result.message ?? 'The store could not be sent to QA.');
-                  reviewButton.textContent = '✓ Sent to QA review'; coverageSignatureRef.current = null; void loadCoverage();
+                  reviewButton.textContent = '✓ Sent to QA review'; window.dispatchEvent(new Event('survey-guru-qa-changed')); try { localStorage.setItem('survey-guru:qa-changed', String(Date.now())); } catch {} coverageSignatureRef.current = null; void loadCoverage();
                 } catch (cause) { reviewButton.disabled = false; reviewButton.textContent = '⚑ Send to QA review'; window.alert(cause instanceof Error ? cause.message : 'The store could not be sent to QA.'); }
               })();
             });

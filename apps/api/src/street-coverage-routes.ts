@@ -46,7 +46,17 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
     const eligibleSegmentDocuments = segmentSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId && document.get('eligible') === true);
     const parsedSegments = eligibleSegmentDocuments.map((document) => parseProjectStreetSegment(document.id, document.data()));
     const streetSegments = parsedSegments.map((segment, index) => buildProjectStreetCoverageView({ segment, contributions, policy, verified: eligibleSegmentDocuments[index]?.get('verificationStatus') === 'VERIFIED' }));
-    const authorisedCaptures = capturesSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId);
+    const canViewTeam = administrator || authority.permissions.has('qa.review') || authority.permissions.has('supervisor.review') || authority.permissions.has('report.read');
+    let supervisorAssignmentIds: Set<string> | null = null;
+    if (authority.permissions.has('supervisor.review') && !administrator && !authority.permissions.has('qa.review')) {
+      const [areas, assignments] = await Promise.all([
+        firestore.collection('projectAreas').where('projectId', '==', project.id).get(),
+        firestore.collection('assignments').where('projectId', '==', project.id).get(),
+      ]);
+      const areaIds = new Set(areas.docs.filter(d => d.get('workspaceId') === authority.workspaceId && (d.get('supervisorIds') ?? []).includes(identity.uid)).map(d => d.id));
+      supervisorAssignmentIds = new Set(assignments.docs.filter(d => d.get('workspaceId') === authority.workspaceId && areaIds.has(d.get('areaId'))).map(d => d.id));
+    }
+    const authorisedCaptures = capturesSnapshot.docs.filter((document) => document.get('workspaceId') === authority.workspaceId && (canViewTeam || document.get('capturerUserId') === identity.uid) && (!supervisorAssignmentIds || supervisorAssignmentIds.has(document.get('assignmentId'))));
     const scopedCaptures = administrator ? authorisedCaptures : authorisedCaptures.filter((document) => document.get('capturerUserId') === identity.uid);
     const capturedStoreCount = scopedCaptures.filter((document) => document.get('status') !== 'DRAFT').length;
     const capturerIds = Array.from(new Set(authorisedCaptures.map((document) => document.get('capturerUserId')).filter((value): value is string => typeof value === 'string')));
@@ -69,6 +79,9 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         storeId: document.get('resolvedStoreId'),
         name: document.get('observedName'),
         status: document.get('status'),
+        qaReviewRequested: document.get('qaReviewRequested') === true,
+        qaReviewReason: document.get('qaReviewReason') ?? null,
+        qaReviewRequestedAt: document.get('qaReviewRequestedAt') ?? null,
         location: document.get('location'),
         answers: document.get('answers'),
         capturerUserId: document.get('capturerUserId'),
@@ -102,7 +115,7 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
       capturedStores,
       storeInsights: {
         totalCaptures: authorisedCaptures.length,
-        correctCaptures: capturedStores.length,
+        correctCaptures: capturedStores.filter(store => !store.qaReviewRequested).length,
         capturedToday: capturedStores.filter((store) => store.capturedToday).length,
         densityPerSquareKm: areaSquareKm > 0 ? Number((capturedStores.length / areaSquareKm).toFixed(2)) : null,
         statusCounts,
@@ -120,7 +133,7 @@ export function registerStreetCoverageRoutes(app: FastifyInstance): void {
         capturedStoreCount,
         capturedStoreScope: administrator ? 'ALL_PROJECT_USERS' : 'CURRENT_USER',
       },
-      authority: { permission: 'coverage.read', workspaceId: authority.workspaceId, projectScoped: true, identityScoped: false, canViewAllCustomers: administrator, canReviewStores: authority.permissions.has('qa.review') },
+      authority: { permission: 'coverage.read', workspaceId: authority.workspaceId, projectScoped: true, identityScoped: false, canViewAllCustomers: administrator, canReviewStores: administrator || authority.permissions.has('supervisor.review') || authority.permissions.has('qa.review') },
       customerScope: allWorkspaceCustomers ? 'ALL_AUTHORISED_PROJECTS' : 'SELECTED_PROJECT',
     };
   });

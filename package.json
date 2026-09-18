@@ -15,7 +15,8 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "android:sync": "npm run sync --workspace @survey-guru/android"
+    "android:sync": "npm run sync --workspace @survey-guru/android",
+    "postinstall": "node apps/android/apply-journal.cjs"
   },
   "devDependencies": {
     "typescript": "7.0.2"

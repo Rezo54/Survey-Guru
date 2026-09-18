@@ -53,25 +53,32 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState('Loading the authorised QA queue…');
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<'exceptions' | 'rejected'>('exceptions');
+  const [view, setView] = useState<'exceptions' | 'rejected' | 'all'>('exceptions');
   const selected = captures.find((capture) => capture.id === selectedId) ?? captures[0] ?? null;
 
   const loadQueue = useCallback(async () => {
     setBusy(true);
     setLoadFailed(false);
     try {
-      const response = await authorisedFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/store-captures/qa${view === 'rejected' ? '?view=rejected' : ''}`);
+      const response = await authorisedFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/store-captures/qa?view=${view}`);
       const result = await response.json() as QueueResponse;
       if (!response.ok) throw new Error(result.message ?? 'The QA queue could not be loaded.');
       const next = result.storeCaptures ?? [];
       setCaptures(next);
       setSelectedId((current) => current && next.some((capture) => capture.id === current) ? current : next[0]?.id ?? null);
-      setMessage(next.length ? `${next.length} ${view === 'rejected' ? 'rejected store reconciliation record' : 'store capture'}${next.length === 1 ? '' : 's'}${view === 'rejected' ? '' : ' awaiting action'}.` : view === 'rejected' ? 'No rejected stores are recorded for this project.' : 'The store QA queue is clear.');
+      setMessage(next.length ? `${next.length} ${view === 'rejected' ? 'rejected store reconciliation record' : 'store capture'}${next.length === 1 ? '' : 's'}${view === 'exceptions' ? ' awaiting action' : ''}.` : view === 'rejected' ? 'No rejected stores are recorded for this project.' : 'The store QA queue is clear.');
     } catch (error) { setLoadFailed(true); setMessage(error instanceof Error ? error.message : 'The QA queue could not be loaded.'); }
     finally { setBusy(false); }
   }, [projectId, view]);
 
   useEffect(() => { void loadQueue(); }, [loadQueue]);
+  useEffect(() => {
+    const refresh = () => { if (!busy && !reason.trim() && document.visibilityState === 'visible') void loadQueue(); };
+    const storage = (event: StorageEvent) => { if (event.key === 'survey-guru:qa-changed') refresh(); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh); window.addEventListener('survey-guru-qa-changed', refresh); window.addEventListener('storage', storage);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('survey-guru-qa-changed', refresh); window.removeEventListener('storage', storage); };
+  }, [loadQueue, busy, reason]);
 
   useEffect(() => {
     let activeUrl: string | null = null;
@@ -127,7 +134,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
   return <div className={styles.qaGrid}>
     <section className={styles.queuePanel}>
       <div className={styles.panelHead}><div><p className={styles.eyebrow}>Exception queue</p><h2>{view === 'rejected' ? 'Rejected reconciliation' : 'Captures needing help'}</h2></div><button type="button" onClick={() => void loadQueue()} disabled={busy}>Refresh</button></div>
-      <div className={styles.queueTabs}><button type="button" className={view === 'exceptions' ? styles.selectedTab : ''} onClick={() => setView('exceptions')}>Needs review</button><button type="button" className={view === 'rejected' ? styles.selectedTab : ''} onClick={() => setView('rejected')}>Rejected stores</button>{view === 'rejected' ? <button type="button" onClick={() => void downloadRejected()} disabled={busy}>⇩ Download rejected</button> : null}</div>
+      <div className={styles.queueTabs}><button type="button" onClick={() => setView('all')} className={view === 'all' ? styles.selectedTab : ''}>All submitted customers</button><button type="button" className={view === 'exceptions' ? styles.selectedTab : ''} onClick={() => setView('exceptions')}>Needs review</button><button type="button" className={view === 'rejected' ? styles.selectedTab : ''} onClick={() => setView('rejected')}>Rejected stores</button>{view === 'rejected' ? <button type="button" onClick={() => void downloadRejected()} disabled={busy}>⇩ Download rejected</button> : null}</div>
       <p className={styles.statusMessage} role="status">{message}</p>
       <div className={styles.queueList}>{captures.map((capture) => <button className={capture.id === selected?.id ? styles.selected : ''} type="button" key={capture.id} onClick={() => { setSelectedId(capture.id); setReason(''); }}>
         <span><strong>{capture.observedName}</strong><small>{capture.submittedAt ? `${new Date(capture.submittedAt).toLocaleString('en-ZA', { timeZone: capture.projectTimeZone ?? 'Africa/Johannesburg' })} · ${capture.projectTimeZone ?? 'project time'}` : 'Submission time unavailable'}</small></span>
@@ -137,7 +144,7 @@ export default function QaReviewQueue({ projectId }: { projectId: string }) {
 
     <section className={styles.reviewPanel}>
       {!selected ? <div className={styles.empty}><strong>{loadFailed ? 'The exception queue could not be opened.' : 'No store captures need QA.'}</strong><span>{loadFailed ? 'Check that this signed-in account has the qa.review permission.' : 'Clean captures bypass this queue and proceed to integration automatically.'}</span></div> : <>
-        <div className={styles.reviewHead}><div><p className={styles.eyebrow}>Selected store</p><h2>{selected.observedName}</h2></div><span className={selected.status === 'VERIFIED' ? styles.verified : styles.pending}>{selected.status === 'VERIFIED' ? 'Verified' : 'Awaiting QA'}</span></div>
+        <div className={styles.reviewHead}><div><p className={styles.eyebrow}>Selected store</p><h2>{selected.observedName}</h2></div><span className={!selected.qaReviewRequested && selected.status === 'VERIFIED' ? styles.verified : styles.pending}>{selected.qaReviewRequested ? 'Awaiting QA review' : selected.status === 'REJECTED' ? 'Rejected' : selected.status === 'VERIFIED' ? 'Verified' : 'Awaiting QA'}</span></div>
         <div className={styles.evidence}>{photoUrl ? <img src={photoUrl} alt={`Storefront evidence for ${selected.observedName}`} /> : <div>Loading protected photo evidence…</div>}</div>
         <dl className={styles.details}>
           <div><dt>GPS</dt><dd>{selected.location?.latitude?.toFixed(5) ?? '—'}, {selected.location?.longitude?.toFixed(5) ?? '—'}</dd></div>

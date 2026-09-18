@@ -27,7 +27,7 @@ function setup() {
   return {
     tracker, states,
     emit: (timestamp = now) => success({ timestamp, coords: { latitude: 1, longitude: 2, accuracy: 5 } } as GeolocationPosition),
-    fail: () => failure({ code: 1 } as GeolocationPositionError),
+    fail: (code = 1) => failure({ code } as GeolocationPositionError),
     advance: () => { now += 10_000; },
     unavailable: () => { available = false; },
     finish: async () => { finish(); await new Promise(setImmediate); },
@@ -66,6 +66,12 @@ test('permission denial clears watcher and requires explicit restart', () => {
   const f = setup(); f.tracker.start(); f.fail(); f.emit();
   assert.equal(f.states.at(-1), 'error'); assert.equal(f.counts().uploads, 0);
   assert.equal(f.counts().cleared, 1);
+});
+
+test('temporary GPS timeout keeps the watcher alive and accepts the next fresh fix', async () => {
+  const f = setup(); f.tracker.start(); f.fail(3);
+  assert.equal(f.states.at(-1), 'tracking'); assert.equal(f.counts().cleared, 0);
+  f.emit(); await f.finish(); assert.equal(f.counts().uploads, 1); f.tracker.stop();
 });
 
 test('stale fixes are skipped and failed uploads stop without retry', async () => {

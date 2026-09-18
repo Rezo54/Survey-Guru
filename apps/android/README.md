@@ -1,7 +1,5 @@
-# Survey Guru Android shell
+# Survey Guru mobile shell
 
-This directory is the native Android capability extension around the shared Survey Guru field PWA. It is not a second product.
+This workspace supports Android and iOS through Capacitor. The shared web app is loaded from a stable HTTPS origin. The native GPS plugin includes a version-pinned app-private disk journal and uses the same authorised movement API as browser tracking.
 
-The generated `android/` platform directory is intentionally not committed yet. Generate it locally only after the PWA has been installed/built successfully and the Capacitor web asset strategy is confirmed.
-
-The first native capability to prove is background movement during an active Search Session. Final street coverage remains server-authoritative.
+See `../../docs/testing/MOBILE-AND-WORKFLOWS.md` for setup, permissions, email configuration and device acceptance checks. Generated native projects and signing material are not included. The native code is prepared but not device-validated or compiled here.

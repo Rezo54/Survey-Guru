@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { PwaRegister } from './pwa-register';
 import ThemeToggle from '../components/ThemeToggle';
+import NativeTrackingBanner from '../components/NativeTrackingBanner';
 import './styles.css';
 import './theme.css';
 
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body>
         <PwaRegister />
         <ThemeToggle />
+        <NativeTrackingBanner />
         {children}
       </body>
     </html>

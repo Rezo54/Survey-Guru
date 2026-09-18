@@ -1,3 +1,4 @@
+import { persistStoreReferral } from './store-review-referral.js';
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { verifyRequestIdentity } from './auth.js';
@@ -170,10 +171,11 @@ async function requireOwnedCapture(request: Parameters<typeof verifyRequestIdent
   return { identity, authority, firestore, storage, capture, assignmentId, projectId };
 }
 
-async function requireQaCapture(request: Parameters<typeof verifyRequestIdentity>[0], captureId: string) {
+async function requireQaCapture(request: Parameters<typeof verifyRequestIdentity>[0], captureId: string, referral = false) {
   const identity = await verifyRequestIdentity(request);
   const authority = await resolveAuthority(identity);
-  requirePermission(authority, 'qa.review');
+  if (referral) { if (!['workspace.admin', 'supervisor.review', 'qa.review'].some(p => authority.permissions.has(p as never))) throw new AuthorisationError('Store referral permission required.'); }
+  else requirePermission(authority, 'qa.review');
   const { firestore, storage } = getFirebaseAdminServices();
   const capture = await firestore.collection('storeCaptures').doc(captureId).get();
   const projectId = capture.get('projectId');
@@ -181,7 +183,13 @@ async function requireQaCapture(request: Parameters<typeof verifyRequestIdentity
     throw new AuthorisationError('Store capture is outside the authorised QA scope.');
   }
   requireProjectScope(authority, projectId);
-  if (capture.get('capturerUserId') === identity.uid && !authority.permissions.has('platform.admin')) {
+  if (referral && authority.permissions.has('supervisor.review') && !authority.permissions.has('workspace.admin') && !authority.permissions.has('qa.review')) {
+    const assignment = await firestore.collection('assignments').doc(String(capture.get('assignmentId'))).get();
+    const areaId = assignment.get('areaId');
+    const area = typeof areaId === 'string' ? await firestore.collection('projectAreas').doc(areaId).get() : null;
+    if (!area?.exists || area.get('workspaceId') !== authority.workspaceId || area.get('projectId') !== projectId || !(area.get('supervisorIds') ?? []).includes(identity.uid)) throw new AuthorisationError('Store is outside your supervised areas.');
+  }
+  if (!referral && capture.get('capturerUserId') === identity.uid && !authority.permissions.has('platform.admin')) {
     throw new AuthorisationError('A capturer cannot review their own store capture.');
   }
   return { identity, authority, firestore, storage, capture, projectId };
@@ -326,10 +334,10 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
     requirePermission(authority, 'qa.review');
     requireProjectScope(authority, request.params.projectId);
     const { firestore } = getFirebaseAdminServices();
-    const snapshot = await firestore.collection('storeCaptures').where('projectId', '==', request.params.projectId).limit(100).get();
+    const snapshot = await firestore.collection('storeCaptures').where('projectId', '==', request.params.projectId).get();
     const rejectedArchive = request.query.view === 'rejected';
     const storeCaptures = snapshot.docs
-      .filter((document) => document.get('workspaceId') === authority.workspaceId && (rejectedArchive
+      .filter((document) => document.get('workspaceId') === authority.workspaceId && (request.query.view === 'all' ? document.get('status') !== 'DRAFT' : rejectedArchive
         ? document.get('status') === 'REJECTED'
         : document.get('status') === 'SUBMITTED' || document.get('qaReviewRequested') === true))
       .map((document) => ({
@@ -355,16 +363,15 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
   });
 
   app.post<{ Params: { captureId: string }; Body: QaFlagBody }>('/api/v1/store-captures/:captureId/flag-for-review', async (request) => {
-    const { identity, authority, firestore, capture } = await requireQaCapture(request, request.params.captureId);
+    const { identity, authority, firestore, capture } = await requireQaCapture(request, request.params.captureId, true);
     const reason = typeof request.body?.reason === 'string' ? request.body.reason.trim() : '';
-    if (reason.length < 5) throw new StoreCaptureRequestError('Describe the anomaly before sending this store to QA.');
-    const currentStatus = capture.get('status') as StoreCaptureStatus;
-    if (!['VERIFIED', 'READY_FOR_EXPORT', 'SYNCED'].includes(currentStatus)) throw new StoreCaptureRequestError('Only an accepted store can be sent back to QA from the project map.');
+    if (reason.length < 5 || reason.length > 2000) throw new StoreCaptureRequestError('Describe the anomaly in 5–2000 characters.');
     const flaggedAt = new Date().toISOString();
-    const eventRef = firestore.collection('storeCaptureQaEvents').doc();
-    await capture.ref.update({ qaReviewRequested: true, qaReviewReason: reason, qaReviewRequestedAt: flaggedAt, qaReviewRequestedBy: identity.uid, preQaStatus: currentStatus, updatedAt: flaggedAt });
-    await eventRef.set({ workspaceId: authority.workspaceId, projectId: capture.get('projectId'), storeCaptureId: capture.id, reviewerUserId: identity.uid, decision: 'FLAG_FOR_REVIEW', reason, fromStatus: currentStatus, toStatus: currentStatus, transitions: [], decidedAt: flaggedAt, environment: process.env.SURVEY_GURU_ENV ?? 'local' });
-    return { storeCapture: { id: capture.id, status: currentStatus, qaReviewRequested: true }, qaEventId: eventRef.id };
+    try { await persistStoreReferral(firestore, capture.ref, { workspaceId: authority.workspaceId, actorId: identity.uid, reason, now: flaggedAt }); }
+    catch (error) { throw new StoreCaptureRequestError(error instanceof Error ? error.message : 'Referral could not be saved.'); }
+    const updated = await capture.ref.get();
+    return { storeCapture: { id: updated.id, status: updated.get('status'), qaReviewRequested: updated.get('qaReviewRequested') === true }, projectId: updated.get('projectId') };
+
   });
 
   app.get<{ Params: { captureId: string; photoIndex: string } }>('/api/v1/store-captures/:captureId/qa-photos/:photoIndex', async (request, reply) => {
@@ -491,7 +498,8 @@ export function registerStoreCaptureRoutes(app: FastifyInstance): void {
           type: resolution.finalStatus === 'NEEDS_REVIEW' ? 'STORE_REDO_REQUIRED' : 'STORE_REJECTED',
           severity: 'ACTION_REQUIRED',
           title: resolution.finalStatus === 'NEEDS_REVIEW' ? `${current.get('observedName')} must be redone` : `${current.get('observedName')} was rejected`,
-          message: reason,
+          message: resolution.finalStatus === 'REJECTED' ? `This store has been removed from the map. QA reason: ${reason}` : `Review this store and correct the requested details. QA reason: ${reason}`,
+          assignmentId: current.get('assignmentId'),
           recipientUserId: current.get('capturerUserId'),
           actorUserId: identity.uid,
           audiencePermission: 'field.capture',

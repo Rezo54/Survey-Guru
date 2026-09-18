@@ -145,18 +145,7 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     if (!project.exists || project.get('workspaceId') !== authority.workspaceId || project.get('status') !== 'active') throw new ProjectSetupRequestError('Select an active project in your workspace.');
     const membershipSnapshot = await firestore.collection('workspaceMemberships').where('workspaceId', '==', authority.workspaceId).where('userId', '==', assignmentInput.userId).where('status', '==', 'active').limit(1).get();
     const membership = membershipSnapshot.docs[0];
-    if (!membership) {
-      let firebaseUser;
-      try { firebaseUser = await auth.getUser(assignmentInput.userId); }
-      catch { throw new ProjectSetupRequestError('The selected Firebase account does not exist.'); }
-      if (firebaseUser.disabled || !firebaseUser.email) throw new ProjectSetupRequestError('The selected Firebase account is disabled or has no email address.');
-      const now = new Date().toISOString();
-      const activation = firestore.batch();
-      activation.set(firestore.collection('users').doc(firebaseUser.uid), { firebaseUid: firebaseUser.uid, email: firebaseUser.email, displayName: firebaseUser.displayName ?? null, status: 'active', environment: 'dev', updatedAt: now }, { merge: true });
-      activation.set(firestore.collection('roleDefinitions').doc('field_worker'), { name: 'Field Worker', scope: 'workspace-project-assignment', permissions: ['project.read', 'assignment.read', 'field.capture', 'coverage.read'], environment: 'dev' }, { merge: true });
-      activation.set(firestore.collection('workspaceMemberships').doc(`wsm_${firebaseUser.uid}`), { userId: firebaseUser.uid, workspaceId: authority.workspaceId, roleKey: 'field_worker', status: 'active', environment: 'dev', activatedAt: now, activatedBy: identity.uid }, { merge: true });
-      await activation.commit();
-    }
+    if (!membership) throw new ProjectSetupRequestError('Ask a super administrator to activate this account and choose its role in People and roles first.');
     const activeMembership = membership ?? await firestore.collection('workspaceMemberships').doc(`wsm_${assignmentInput.userId}`).get();
     const [user, role] = await Promise.all([
       firestore.collection('users').doc(assignmentInput.userId).get(),

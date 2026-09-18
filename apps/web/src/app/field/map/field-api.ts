@@ -21,6 +21,12 @@ export async function getFieldToken(): Promise<string> {
   return user.getIdToken();
 }
 
+export async function getFieldUserId(): Promise<string> {
+  const user = await waitForFirebaseUser();
+  if (!user) throw new Error('Sign in to synchronise saved locations.');
+  return user.uid;
+}
+
 export async function getFieldUserLabel(): Promise<string> {
   const user = await waitForFirebaseUser();
   if (!user) return 'Signed-in user';

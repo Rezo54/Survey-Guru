@@ -1,20 +1,4 @@
 import Link from 'next/link';
-
-export default function HomePage() {
-  return (
-    <main className="home-shell">
-      <section className="home-card">
-        <p className="eyebrow">TES — Task Expert Systems</p>
-        <h1>Survey Guru</h1>
-        <p className="subtle">Discover. Survey. Validate. Map. Analyse.</p>
-        <p><span className="kicker">Hybrid Enterprise/GIS</span> — geographic intelligence stays at the centre of the operating experience.</p>
-        <div className="home-actions">
-          <Link className="button primary" href="/dashboard">Open Management</Link>
-          <Link className="button" href="/field">Open Field PWA</Link>
-          <Link className="button" href="/field/map">Open Field Map</Link>
-        </div>
-        <div className="design-note">This checkpoint is deliberately configuration-safe: Firebase and protected API operations remain injected later. The screens use representative local data to validate structure, hierarchy and field usability first.</div>
-      </section>
-    </main>
-  );
-}
+import PublicNav from '../components/PublicNav';
+import s from './public.module.css';
+export default function HomePage() { return <main className={s.page}><div className={s.wrap}><PublicNav/><section className={s.hero}><div><p className={s.eyebrow}>Field evidence. Market intelligence.</p><h1>Know the streets.<br/>See the opportunity.</h1><p>Survey Guru connects field teams, customer evidence and geographic coverage, so every decision starts with a clearer picture of the market.</p><div className={s.actions}><Link className={s.button} href="/consultation">Book a consultation →</Link><Link className={s.secondary} href="/demo">Explore the demo</Link></div></div><div className={s.map}><svg viewBox="0 0 400 400" role="img" aria-label="Illustration of field coverage"><g stroke="currentColor" opacity=".16" strokeWidth="16">{[60,130,200,270,340].map(n => <path key={n} d={`M${n} 0V400 M0 ${n}H400`}/>)}</g><path d="M60 60H270V200H130V340" fill="none" stroke="#0bd5aa" strokeWidth="10"/><path d="M270 200H340V340" fill="none" stroke="#ffbd39" strokeWidth="10"/><circle cx="130" cy="200" r="16" fill="#0bd5aa" stroke="white" strokeWidth="5"/></svg><div className={s.badge}><strong>Evidence before inference.</strong><p>Capture. Validate. Understand.</p></div></div></section><div className={s.grid}>{[['Coordinate your field teams','Assign project areas and keep field agents, supervisors and QA connected.'],['Capture the reality on the ground','Collect customer details, photographs and GPS evidence where the work happens.'],['Understand each area','See recorded activity, customer status and confirmed coverage in one workspace.']].map(([title,copy]) => <article key={title} className={s.card}><h2>{title}</h2><p>{copy}</p></article>)}</div><footer className={s.footer}><span>Survey Guru · Task Expert Systems</span><Link href="/sign-in">Team sign in →</Link><a href="mailto:admin@taskraft.org">admin@taskraft.org</a></footer></div></main>; }
