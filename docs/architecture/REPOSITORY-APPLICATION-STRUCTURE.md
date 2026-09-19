@@ -195,3 +195,23 @@ for your Windows user only, not the private key. Do not click through certificat
 warnings if import fails; report the command error instead. These certificates
 exist only in this working checkout and are not delivered by a Git pull.
 LinkedIn redirect configuration is unchanged.
+
+## Client business access (September 2026)
+
+`/businesses` and `/api/v1/businesses` reuse `workspaces`,
+`workspaceMemberships`, `roleDefinitions` and `projectMemberships`.
+TES platform administrators create business workspaces and appoint business admins.
+Business admins have `business.admin`, not `workspace.admin` or `platform.admin`.
+They can add existing registered accounts by email, change ordinary employees,
+deactivate access and select projects belonging to their business. Accounts must
+request an account first; this workflow sends no invitations or passwords.
+Report viewer is the default; optional capture adds field.capture and
+assignment.read but does not create a field assignment. Business administrators
+cannot appoint or modify other administrators. Access writes and audit events are
+transactional. Existing accounts in another workspace cannot be transferred here.
+
+Business project lists contain only that workspace's active projects. This release
+introduces business/user administration, not migration or sharing of TES projects.
+New businesses start empty. Client project provisioning and TES-to-client report
+sharing must be configured separately; no existing project is moved or exposed.
+Existing TES workspace/project administration remains unchanged.

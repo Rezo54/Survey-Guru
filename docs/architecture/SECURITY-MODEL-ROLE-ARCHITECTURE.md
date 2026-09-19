@@ -253,3 +253,19 @@ Page metadata is UNVERIFIED and is never sufficient authority for a post. Draft
 text is immutable; preview and approval are explicit server transitions with actor
 history. All external publication is disabled pending a later reviewed capability.
 Configuration and release checks are maintained in REPOSITORY-APPLICATION-STRUCTURE.md.
+
+### Business employee administration
+
+Business administration uses an explicit business.admin permission, scoped to the
+resolved workspace. Only platform.admin can create businesses or appoint business
+administrators. Tenant-owned role definitions must match the resolved workspace.
+Employee changes validate every project against the business and reject accounts
+already belonging to another workspace, even inactive memberships. Users cannot
+change themselves. Business admins cannot change privileged administrators.
+Role presets never grant workspace.admin, platform.admin, QA or export privileges.
+Capture is opt-in and still requires ordinary project/area assignment checks.
+Deactivation revokes workspace and project memberships on the next request;
+Firebase accounts and historic field records are retained. businessAccessEvents
+record actor, subject, role, project selection, status and timestamp atomically.
+No Firebase rules, CORS or authentication bypass was added.
+Tests exercise tenant boundaries, escalation, capture opt-in and deactivation.

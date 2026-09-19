@@ -7,7 +7,7 @@ import { fieldApiOrigin, getFieldToken } from '../app/field/map/field-api';
 import SurveyGuruSidebarFooter from './SurveyGuruSidebarFooter';
 import styles from './SurveyGuruSidebar.module.css';
 
-type SidebarSection = 'marketing' | 'operations' | 'dashboard' | 'project-map' | 'field' | 'field-map' | 'opportunities' | 'explore' | 'evidence' | 'qa' | 'settings' | 'help';
+type SidebarSection = 'businesses' | 'marketing' | 'operations' | 'dashboard' | 'project-map' | 'field' | 'field-map' | 'opportunities' | 'explore' | 'evidence' | 'qa' | 'settings' | 'help';
 
 type SurveyGuruSidebarProps = {
     active: SidebarSection;
@@ -20,7 +20,7 @@ type NavItem = {
     label: string;
 };
 
-const permissionsBySection: Record<SidebarSection, string[]> = { marketing:['workspace.admin'], dashboard:['report.read'], 'project-map':['coverage.read'], field:['field.capture'], 'field-map':['field.capture'], opportunities:['opportunity.read','report.read'], explore:['opportunity.read','report.read'], evidence:['qa.review'], qa:['qa.review'], settings:['platform.admin'], help:['project.read'], operations:['workspace.admin','supervisor.review','qa.review'] };
+const permissionsBySection: Record<SidebarSection, string[]> = { businesses:['platform.admin','business.admin'], marketing:['workspace.admin'], dashboard:['report.read'], 'project-map':['coverage.read'], field:['field.capture'], 'field-map':['field.capture'], opportunities:['opportunity.read','report.read'], explore:['opportunity.read','report.read'], evidence:['qa.review'], qa:['qa.review'], settings:['platform.admin'], help:['project.read'], operations:['workspace.admin','supervisor.review','qa.review'] };
 const groups: ReadonlyArray<ReadonlyArray<NavItem>> = [
     [
         { section: 'operations', href: '/operations', icon: '▦', label: 'Project areas' },
@@ -40,6 +40,7 @@ const groups: ReadonlyArray<ReadonlyArray<NavItem>> = [
         { section: 'qa', href: '/qa', icon: '◆', label: 'QA' },
     ],
     [
+        { section: 'businesses', href: '/businesses', icon: '▦', label: 'Businesses' },
         { section: 'marketing', href: '/settings/linkedin', icon: 'in', label: 'LinkedIn marketing' },
         { section: 'settings', href: '/settings/roles', icon: '⚙', label: 'Settings' },
         { section: 'help', href: '/help', icon: '?', label: 'Help' },

@@ -2,6 +2,7 @@ import type { AuthenticatedIdentity } from './auth.js';
 import { getFirebaseAdminServices } from './firebase-admin.js';
 
 export type SurveyGuruPermission =
+  | 'business.admin'
   | 'platform.admin'
   | 'workspace.admin'
   | 'project.read'
@@ -55,7 +56,7 @@ export async function resolveAuthority(identity: AuthenticatedIdentity): Promise
 
   const role = await firestore.collection('roleDefinitions').doc(roleKey).get();
   const permissionValues: unknown = role.get('permissions');
-  if (!role.exists || !Array.isArray(permissionValues)) throw new AuthorisationError('Workspace role is not resolved.');
+  if (!role.exists || (role.get('workspaceId') && role.get('workspaceId') !== workspaceId) || !Array.isArray(permissionValues)) throw new AuthorisationError('Workspace role is not resolved.');
   const permissions = permissionValues.filter((permission): permission is SurveyGuruPermission => typeof permission === 'string');
 
   const projectAccess = await firestore.collection('projectMemberships').where('userId', '==', identity.uid).where('workspaceId', '==', workspaceId).where('status', '==', 'active').get();

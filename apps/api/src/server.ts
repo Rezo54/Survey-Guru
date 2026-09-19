@@ -1,3 +1,4 @@
+import { registerBusinessRoutes } from './business-routes.js';
 import { PhotoStorageError } from './photo-storage.js';
 import { registerLinkedInRoutes } from './linkedin-routes.js';
 import { LinkedInError } from './linkedin.js';
@@ -38,6 +39,7 @@ registerLinkedInRoutes(app);
 registerStoreCaptureRoutes(app);
 registerProjectSetupRoutes(app);
 registerOperationsRoutes(app);
+registerBusinessRoutes(app);
 registerInsightRoutes(app);
 
 app.get('/api/v1/me/notifications', async request => {
