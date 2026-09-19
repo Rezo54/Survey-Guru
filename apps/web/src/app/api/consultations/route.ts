@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const {name,email,company,message,requestId,website,submittedAt} = body;
   if (website) return Response.json({message:'Invalid request.'},{status:400});
   if (typeof name !== 'string' || !name.trim() || name.length > 120 || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || typeof company !== 'string' || !company.trim() || /[\r\n]/.test(company) || company.length > 160 || typeof message !== 'string' || message.trim().length < 10 || message.length > 3000 || typeof requestId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(requestId) || typeof submittedAt !== 'string' || !Number.isFinite(Date.parse(submittedAt)) || Math.abs(Date.now()-Date.parse(submittedAt)) > 86400000) return Response.json({message:'Enter your name, valid email, company and at least 10 characters about your project. Refresh the page if the request has expired.'},{status:400});
-  const tenant = process.env.M365_TENANT_ID; const clientId = process.env.M365_CLIENT_ID; const secret = process.env.M365_CLIENT_SECRET;
+  const tenant = process.env.MICROSOFT_TENANT_ID; const clientId = process.env.MICROSOFT_CLIENT_ID; const secret = process.env.MICROSOFT_CLIENT_SECRET;
   const to = 'consult@surveyguru.ai';
   if (!tenant || !/^[a-f0-9-]{36}$/i.test(tenant) || !clientId || !secret) return Response.json({ message:`Online booking is not configured yet. Please email ${to}.` }, {status:503});
   const now=Date.now();

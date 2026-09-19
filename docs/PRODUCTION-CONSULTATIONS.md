@@ -22,8 +22,23 @@ Do not change Cloud Run CORS, API authentication, Firebase rules or DNS to
 activate this form. Sending credentials must be server-only Netlify environment
 variables, never NEXT_PUBLIC variables or browser code.
 
-The owner selected Microsoft 365 sending. Application credentials and scoped
-permission must be configured before live delivery can be verified.
+## Configuration confirmed by the owner — 19 September 2026
+
+- Single-tenant Entra application: Survey Guru Website Mailer.
+- Exchange service principal registered.
+- Exchange scope: Survey Guru Consultation Mailbox Scope; resolves only
+  consult@surveyguru.ai.
+- Application Mail.Send assigned through Exchange Application RBAC within that scope.
+- Test-ServicePrincipalAuthorization: consult@surveyguru.ai InScope = True;
+  an outside Taskraft mailbox InScope = False.
+- No tenant-wide Entra Graph Mail.Send permission granted.
+- Netlify production MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID and
+  MICROSOFT_CLIENT_SECRET configured server-side, as confirmed by the owner.
+  CLIENT_ID is the Application (client) ID; CLIENT_SECRET is the secret Value.
+
+These are owner-reported configuration checks, not an independently observed
+email-delivery test. Actual inbox receipt still requires the approved deployment
+and test below. The former M365_* variable names are no longer read.
 
 Before publication, complete automated validation and obtain owner approval.
 After server-side sending configuration and approved deployment, send one clearly
@@ -52,9 +67,9 @@ are fixed to consult@surveyguru.ai; the visitor is Reply-To only.
 5. Configure these server-only Netlify variables for production Functions:
 
 ```dotenv
-M365_TENANT_ID=<tenant-guid>
-M365_CLIENT_ID=<application-client-id>
-M365_CLIENT_SECRET=<secret-value>
+MICROSOFT_TENANT_ID=<tenant-guid>
+MICROSOFT_CLIENT_ID=<application-client-id>
+MICROSOFT_CLIENT_SECRET=<secret-value>
 ```
 
 The obsolete RESEND_API_KEY, SURVEY_GURU_CONSULTATION_FROM and
