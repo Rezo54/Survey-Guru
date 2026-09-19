@@ -41,12 +41,8 @@ QA can select any active workspace project and view all submitted customers, exc
 
 ## Consultation email
 
-The server-side web route supports Resend. Configure in `apps/web/.env.local` (or production secret settings):
-
-```dotenv
-RESEND_API_KEY=YOUR_SERVER_SECRET
-SURVEY_GURU_CONSULTATION_FROM=Survey Guru <YOUR-VERIFIED-SENDER>
-SURVEY_GURU_CONSULTATION_TO=admin@taskraft.org
-```
-
-Later change the recipient to `admin@surveyguru.ai`. The sender domain must be verified with Resend. These values must never use a NEXT_PUBLIC prefix. Without configuration, the form clearly reports unavailability and offers direct email. No live test email has been sent. Requests are validated, use provider idempotency keys and a basic process-local rate limit; add gateway rate limiting before a multi-instance public rollout.
+See [production consultation configuration](../PRODUCTION-CONSULTATIONS.md).
+The canonical origin is https://surveyguru.ai and the public mailbox is
+consult@surveyguru.ai. Sending uses Microsoft Graph in the existing Netlify-hosted
+Next.js server route, with server-only credentials. Microsoft 365 handles mail;
+Netlify remains authoritative DNS.
