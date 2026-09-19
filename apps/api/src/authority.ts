@@ -1,3 +1,4 @@
+import { membershipRole, membershipRoleKeys } from './membership-roles.js';
 import type { AuthenticatedIdentity } from './auth.js';
 import { getFirebaseAdminServices } from './firebase-admin.js';
 
@@ -51,10 +52,10 @@ export async function resolveAuthority(identity: AuthenticatedIdentity): Promise
   if (!membership) throw new AuthorisationError('No active Survey Guru workspace membership is resolved.');
 
   const workspaceId = membership.get('workspaceId');
-  const roleKey = membership.get('roleKey');
+  const roleKey = membershipRoleKeys(membership)[0]!;
   if (typeof workspaceId !== 'string' || typeof roleKey !== 'string') throw new AuthorisationError('Workspace membership is invalid.');
 
-  const role = await firestore.collection('roleDefinitions').doc(roleKey).get();
+  const role = await membershipRole(firestore, membership);
   const permissionValues: unknown = role.get('permissions');
   if (!role.exists || (role.get('workspaceId') && role.get('workspaceId') !== workspaceId) || !Array.isArray(permissionValues)) throw new AuthorisationError('Workspace role is not resolved.');
   const permissions = permissionValues.filter((permission): permission is SurveyGuruPermission => typeof permission === 'string');

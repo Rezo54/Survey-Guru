@@ -1,3 +1,4 @@
+import { membershipRole, membershipRoleKeys } from './membership-roles.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { verifyRequestIdentity } from './auth.js';
@@ -112,7 +113,7 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
       if (typeof userId !== 'string' || typeof roleKey !== 'string') return null;
       const [user, role] = await Promise.all([
         firestore.collection('users').doc(userId).get(),
-        firestore.collection('roleDefinitions').doc(roleKey).get(),
+        membershipRole(firestore, membership),
       ]);
       const permissions = role.get('permissions');
       if (!user.exists || user.get('status') !== 'active' || !Array.isArray(permissions) || !permissions.includes('field.capture') || permissions.includes('workspace.admin')) return null;
@@ -149,7 +150,7 @@ export function registerProjectSetupRoutes(app: FastifyInstance): void {
     const activeMembership = membership ?? await firestore.collection('workspaceMemberships').doc(`wsm_${assignmentInput.userId}`).get();
     const [user, role] = await Promise.all([
       firestore.collection('users').doc(assignmentInput.userId).get(),
-      firestore.collection('roleDefinitions').doc(String(activeMembership.get('roleKey'))).get(),
+      membershipRole(firestore, activeMembership),
     ]);
     const permissions = role.get('permissions');
     if (!user.exists || user.get('status') !== 'active' || !Array.isArray(permissions) || !permissions.includes('field.capture') || permissions.includes('workspace.admin')) throw new ProjectSetupRequestError('The selected account is not an eligible field capturer.');

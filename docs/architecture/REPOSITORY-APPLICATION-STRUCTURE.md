@@ -215,3 +215,14 @@ introduces business/user administration, not migration or sharing of TES project
 New businesses start empty. Client project provisioning and TES-to-client report
 sharing must be configured separately; no existing project is moved or exposed.
 Existing TES workspace/project administration remains unchanged.
+
+### Multiple assigned roles
+Workspace memberships now accept roleKeys (1–10 distinct role identifiers).
+Legacy roleKey remains as the first role for compatibility; records without
+roleKeys retain their existing single role. Settings / People and roles uses
+checkboxes to replace the selected role set. Permissions are the union of every
+validated role; project and area scope remain independently enforced. Supervisor
+plus Field worker therefore enables both monitoring and capture navigation.
+Capturer eligibility and operation assignments use the same union. A missing or
+foreign-workspace role fails closed. Business administration continues to use its
+restricted role presets and checks every assigned role before changing an admin.

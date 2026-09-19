@@ -1,3 +1,4 @@
+import { membershipRole, membershipRoleKeys } from './membership-roles.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { verifyRequestIdentity } from './auth.js';
@@ -27,8 +28,8 @@ export function registerOperationsRoutes(app: FastifyInstance, loadContext: type
       firestore.collection('workspaceMemberships').where('workspaceId', '==', authority.workspaceId).get(),
       firestore.collection('roleDefinitions').get(), auth.listUsers(1000),
     ]);
-    const known = new Map(members.docs.map(d => [d.get('userId'), d.get('roleKey')]));
-    return { people: accounts.users.filter(u => !u.disabled).map(u => ({ id: u.uid, email: u.email ?? '', name: u.displayName ?? '', roleKey: known.get(u.uid) ?? null })),
+    const known = new Map(members.docs.map(d => [d.get('userId'), membershipRoleKeys(d)]));
+    return { people: accounts.users.filter(u => !u.disabled).map(u => ({ id: u.uid, email: u.email ?? '', name: u.displayName ?? '', roleKey: known.get(u.uid)?.[0] ?? null, roleKeys: known.get(u.uid) ?? [] })),
       moreAccountsAvailable: Boolean(accounts.pageToken),
       roles: [...Object.entries(rolePermissions).map(([key, permissions]) => ({ key, name: key.replaceAll('_', ' '), permissions })), ...roles.docs.filter(d => d.get('workspaceId') === authority.workspaceId).map(d => ({ key: d.id, name: d.get('name'), permissions: d.get('permissions') }))],
       assignablePermissions: [...assignablePermissions] };
@@ -42,23 +43,28 @@ export function registerOperationsRoutes(app: FastifyInstance, loadContext: type
     await firestore.collection('roleDefinitions').doc(key).create({ name, permissions: [...new Set(permissions)], workspaceId: authority.workspaceId, createdBy: identity.uid, createdAt: new Date().toISOString() });
     return { roleKey: key, name };
   });
-  app.post<{ Params: { userId: string }; Body: { roleKey?: unknown } }>('/api/v1/admin/people/:userId/role', async request => {
+  app.post<{ Params: { userId: string }; Body: { roleKey?: unknown; roleKeys?: unknown } }>('/api/v1/admin/people/:userId/role', async request => {
     const { identity, authority, firestore, auth } = await loadContext(request); requirePermission(authority, 'platform.admin');
     if (request.params.userId === identity.uid) throw new ProjectSetupRequestError('Use another super administrator to change your own access.');
-    const roleKey = text(request.body?.roleKey, 'Role');
-    const preset = rolePermissions[roleKey as keyof typeof rolePermissions];
-    const role = await firestore.collection('roleDefinitions').doc(roleKey).get();
-    if (!preset && (!role.exists || role.get('workspaceId') !== authority.workspaceId)) throw new AuthorisationError('Role is outside this workspace.');
+    const roleKeys = membershipRoleKeys({ get: key => key === 'roleKeys' ? request.body?.roleKeys : request.body?.roleKey });
+    const roleKey = roleKeys[0]!;
+    const selectedRoles = await Promise.all(roleKeys.map(async key => {
+      const preset = rolePermissions[key as keyof typeof rolePermissions];
+      const role = await firestore.collection('roleDefinitions').doc(key).get();
+      if ((!preset && (!role.exists || role.get('workspaceId') !== authority.workspaceId)) || (role.exists && role.get('workspaceId') && role.get('workspaceId') !== authority.workspaceId)) throw new AuthorisationError('Role is outside this workspace.');
+      if ((role.get('permissions') ?? []).includes('platform.admin')) throw new AuthorisationError('Platform administrator cannot be granted here.');
+      return {key,preset,role};
+    }));
     const user = await auth.getUser(request.params.userId);
     if (user.disabled || !user.email) throw new ProjectSetupRequestError('Select an enabled account with an email address.');
     const memberships = await firestore.collection('workspaceMemberships').where('userId', '==', user.uid).get();
     if (memberships.docs.some(d => d.get('workspaceId') !== authority.workspaceId && d.get('status') === 'active')) throw new ProjectSetupRequestError('This account already belongs to another workspace.');
     const existing = memberships.docs.find(d => d.get('workspaceId') === authority.workspaceId);
     const batch = firestore.batch();
-    if (preset && !role.exists) batch.set(firestore.collection('roleDefinitions').doc(roleKey), { name: roleKey, permissions: [...preset] });
+    for (const {key,preset,role} of selectedRoles) if (preset && !role.exists) batch.set(firestore.collection('roleDefinitions').doc(key), { name: key, permissions: [...preset] });
     batch.set(firestore.collection('users').doc(user.uid), { email: user.email, displayName: user.displayName ?? null, status: 'active' }, { merge: true });
-    batch.set(existing?.ref ?? firestore.collection('workspaceMemberships').doc(`wsm_${user.uid}`), { userId: user.uid, workspaceId: authority.workspaceId, roleKey, status: 'active', activatedBy: identity.uid, updatedAt: new Date().toISOString() }, { merge: true });
-    await batch.commit(); return { userId: user.uid, roleKey };
+    batch.set(existing?.ref ?? firestore.collection('workspaceMemberships').doc(`wsm_${user.uid}`), { userId: user.uid, workspaceId: authority.workspaceId, roleKey, roleKeys, status: 'active', activatedBy: identity.uid, updatedAt: new Date().toISOString() }, { merge: true });
+    await batch.commit(); return { userId: user.uid, roleKey, roleKeys };
   });
 
   app.get('/api/v1/operations', async request => {
@@ -75,7 +81,7 @@ export function registerOperationsRoutes(app: FastifyInstance, loadContext: type
     const visibleAreas = areas.docs.filter(d => authority.projectIds.has(d.get('projectId')) && (administrator || qa || (d.get('supervisorIds') ?? []).includes(identity.uid)));
     const ids = new Set(visibleAreas.map(d => d.id));
     const people = await Promise.all((members?.docs ?? []).map(async d => {
-      const [user, role] = await Promise.all([firestore.collection('users').doc(d.get('userId')).get(), firestore.collection('roleDefinitions').doc(d.get('roleKey')).get()]);
+      const [user, role] = await Promise.all([firestore.collection('users').doc(d.get('userId')).get(), membershipRole(firestore, d)]);
       return { id: d.get('userId'), name: user.get('displayName') ?? user.get('email') ?? d.get('userId'), permissions: role.get('permissions') ?? [] };
     }));
     return { canManage: administrator, canReview: qa, canSubmit: authority.permissions.has('supervisor.review'),
@@ -99,7 +105,7 @@ export function registerOperationsRoutes(app: FastifyInstance, loadContext: type
     if (kind !== 'field' && kind !== 'supervisor') throw new ProjectSetupRequestError('Select field agent or supervisor.');
     const memberships = await firestore.collection('workspaceMemberships').where('workspaceId', '==', authority.workspaceId).where('userId', '==', userId).where('status', '==', 'active').get();
     const membership = memberships.docs[0]; if (!membership) throw new AuthorisationError('Activate this person and assign a role first.');
-    const role = await firestore.collection('roleDefinitions').doc(membership.get('roleKey')).get();
+    const role = await membershipRole(firestore, membership);
     if (!(role.get('permissions') ?? []).includes(kind === 'field' ? 'field.capture' : 'supervisor.review')) throw new ProjectSetupRequestError('The selected role does not permit this assignment.');
     const areaRef = firestore.collection('projectAreas').doc(request.params.areaId);
     const id = `asg_${randomUUID()}`; const now = new Date().toISOString();

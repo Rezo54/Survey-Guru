@@ -1,3 +1,4 @@
+import { membershipRole, membershipRoleKeys } from './membership-roles.js';
 import type { FastifyInstance } from 'fastify';
 import { verifyRequestIdentity } from './auth.js';
 import { AuthorisationError, type AuthorityContext, type SurveyGuruPermission, resolveAuthority } from './authority.js';
@@ -41,7 +42,7 @@ export function registerBusinessRoutes(app: FastifyInstance, load: typeof contex
       firestore.collection('projects').where('workspaceId', '==', business.id).where('status', '==', 'active').get()
     ]);
     const people = await Promise.all(members.docs.map(async d => {
-      const [user, role, access] = await Promise.all([firestore.collection('users').doc(d.get('userId')).get(), firestore.collection('roleDefinitions').doc(d.get('roleKey')).get(), firestore.collection('projectMemberships').where('workspaceId', '==', business.id).where('userId', '==', d.get('userId')).where('status', '==', 'active').get()]);
+      const [user, role, access] = await Promise.all([firestore.collection('users').doc(d.get('userId')).get(), membershipRole(firestore, d), firestore.collection('projectMemberships').where('workspaceId', '==', business.id).where('userId', '==', d.get('userId')).where('status', '==', 'active').get()]);
       return { id: d.get('userId'), email: user.get('email') ?? '', status: d.get('status'), admin: (role.get('permissions') ?? []).includes('business.admin'), capture: (role.get('permissions') ?? []).includes('field.capture'), projectIds: access.docs.map(p => p.get('projectId')) };
     }));
     return { name: business.get('name'), canAppointAdmin: authority.permissions.has('platform.admin'), people, projects: projects.docs.map(d => ({ id: d.id, name: d.get('name') })) };
@@ -62,7 +63,7 @@ export function registerBusinessRoutes(app: FastifyInstance, load: typeof contex
       if (memberships.docs.some(d => d.get('workspaceId') !== workspaceId)) throw new AuthorisationError('This account belongs to another workspace. TES must handle account transfers separately.');
       const existing = memberships.docs.find(d => d.get('workspaceId') === workspaceId);
       if (existing) {
-        const oldRole = await tx.get(firestore.collection('roleDefinitions').doc(existing.get('roleKey')));
+        const oldRole = await membershipRole(firestore, existing, ref => tx.get(ref));
         if ((oldRole.get('permissions') ?? []).some((p: string) => ['platform.admin', 'workspace.admin'].includes(p)) || (!authority.permissions.has('platform.admin') && (oldRole.get('permissions') ?? []).includes('business.admin'))) throw new AuthorisationError('This administrator cannot be changed here.');
       }
       const previous = await tx.get(firestore.collection('projectMemberships').where('userId', '==', user.uid).where('workspaceId', '==', workspaceId));
@@ -73,7 +74,7 @@ export function registerBusinessRoutes(app: FastifyInstance, load: typeof contex
       const now = new Date().toISOString(); const roleKey = `${workspaceId}_business_${role}_${capture ? 'capture' : 'read'}`;
       tx.set(firestore.collection('roleDefinitions').doc(roleKey), { workspaceId, name: `Business ${role}${capture ? ' with capture' : ''}`, permissions });
       tx.set(firestore.collection('users').doc(user.uid), { email: user.email, displayName: user.displayName ?? '', status: 'active' }, { merge: true });
-      tx.set(existing?.ref ?? firestore.collection('workspaceMemberships').doc(`wsm_${user.uid}`), { workspaceId, userId: user.uid, roleKey, status: active ? 'active' : 'inactive', updatedBy: identity.uid, updatedAt: now });
+      tx.set(existing?.ref ?? firestore.collection('workspaceMemberships').doc(`wsm_${user.uid}`), { workspaceId, userId: user.uid, roleKey, roleKeys: [roleKey], status: active ? 'active' : 'inactive', updatedBy: identity.uid, updatedAt: now });
       for (const old of previous.docs) tx.set(old.ref, { status: 'inactive' }, { merge: true });
       if (active) for (const projectId of new Set(projectIds as string[])) tx.set(firestore.collection('projectMemberships').doc(`prjm_${projectId}_${user.uid}`), { workspaceId, projectId, userId: user.uid, status: 'active' });
       tx.create(firestore.collection('businessAccessEvents').doc(), { workspaceId, actorId: identity.uid, userId: user.uid, roleKey, active, projectIds: active ? projectIds : [], createdAt: now });
