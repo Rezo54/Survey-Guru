@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:https": "next dev --experimental-https --experimental-https-key certificates/localhost-key.pem --experimental-https-cert certificates/localhost.pem --experimental-https-ca ../../.local-https/ca/rootCA.pem --hostname localhost --port 3000",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"

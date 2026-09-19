@@ -1,4 +1,6 @@
 import { PhotoStorageError } from './photo-storage.js';
+import { registerLinkedInRoutes } from './linkedin-routes.js';
+import { LinkedInError } from './linkedin.js';
 import { parseMovement, movementKey, movementFingerprint, validateMovement, type Point } from './movement-input.js';
 import Fastify from 'fastify';
 import { registerOperationsRoutes } from './operations-routes.js';
@@ -22,6 +24,7 @@ app.addHook('onRequest', async (request, reply) => {
 });
 
 app.setErrorHandler((error, _request, reply) => {
+  if (error instanceof LinkedInError) return reply.code(error.statusCode).send({message:error.message});
   if (error instanceof PhotoStorageError) { app.log.error(error); return reply.code(error.statusCode).header('Cache-Control','no-store').send({error:error.code,message:error.message}); }
   if (error instanceof AuthenticationError) return reply.code(error.statusCode).send({ error: 'unauthenticated', message: error.message });
   if (error instanceof AuthorisationError) return reply.code(error.statusCode).send({ error: 'forbidden', message: error.message });
@@ -31,6 +34,7 @@ app.setErrorHandler((error, _request, reply) => {
 });
 
 registerStreetCoverageRoutes(app);
+registerLinkedInRoutes(app);
 registerStoreCaptureRoutes(app);
 registerProjectSetupRoutes(app);
 registerOperationsRoutes(app);

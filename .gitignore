@@ -9,6 +9,15 @@ coverage/
 .env.*.local
 !.env.example
 .DS_Store
+# Local development TLS material (never publish certificates or private keys).
+certificates/
+.local-https/
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
 *.log
 apps/android/android/.gradle/
 apps/android/android/app/build/

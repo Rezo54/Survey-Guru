@@ -215,3 +215,41 @@ Direct broad browser access to protected Firestore collections must not become t
 ---
 
 This is a living TES security architecture document. Any implementation that conflicts with the non-negotiable API/backend authority principle must be treated as a security defect.
+## 27. LinkedIn marketing boundary — initial implementation
+
+The connection belongs to a workspace and environment, not a public browser
+session. Existing workspace.admin permission is required. Callback is a narrowly
+scoped OAuth endpoint: an atomic Firestore transaction consumes the matching
+256-bit state and separate browser binding; expiry is ten minutes. The initiating
+user's current role/workspace is checked again before token exchange. Redirects
+are server configured, HTTPS and environment isolated. Callback codes are exchanged
+by the API, never client JavaScript. No broad CORS or Firestore rule is added.
+
+The web start route requires the configured same-site Origin and a Firebase bearer
+identity. A __Host cookie (Secure, HttpOnly, SameSite=Lax, Path=/, ten minutes) binds
+the browser to the pending OAuth attempt. The callback clears it and redirects to
+fixed settings URLs with only a success/failure marker. Browser-visible responses
+never contain client secrets, access tokens or encrypted token blobs. The API uses
+AES-256-GCM with random IV and workspace/environment-associated data before storing
+an access token. Only server runtime secret configuration holds the encryption key.
+
+Expiry derives from expires_in, including the reported 5,184,000-second lifetime;
+seven days remaining produces an EXPIRING_SOON warning and expiry requires renewed
+consent. Refresh tokens are not stored or assumed. There are no background LinkedIn
+reads in this checkpoint. External revocation cannot be detected without a provider
+call; administrators should disconnect/reconnect if access is revoked externally.
+Disconnect deletes active connection and Page information. Verified deletion or
+account-closure requests must be handled by the operator for users without admin
+access, including relevant backups and externally revoked connections. User-entered
+marketing drafts are separate and can be removed by the operator on request.
+
+Do not log callback query strings, request bodies, cookies, authorization codes or
+tokens in Netlify observability/log drains. The callback response is no-store and
+no-referrer and redirects immediately; review hosting access-log retention before
+production OAuth. API callback data is POST body rather than a query string, and
+provider errors are sanitised before returning to clients.
+
+Page metadata is UNVERIFIED and is never sufficient authority for a post. Draft
+text is immutable; preview and approval are explicit server transitions with actor
+history. All external publication is disabled pending a later reviewed capability.
+Configuration and release checks are maintained in REPOSITORY-APPLICATION-STRUCTURE.md.

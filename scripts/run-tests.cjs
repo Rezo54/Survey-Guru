@@ -11,7 +11,7 @@ function compile(relative) {
     else if (file.endsWith('.ts') && !file.endsWith('.d.ts')) {
       const output = path.join(destination, file.replace(/\.ts$/, '.js'));
       fs.mkdirSync(path.dirname(output), { recursive: true });
-      fs.writeFileSync(output, stripTypeScriptTypes(fs.readFileSync(path.join(root, file), 'utf8'), { mode: 'transform' }));
+      fs.writeFileSync(output, stripTypeScriptTypes(fs.readFileSync(path.join(root, file), 'utf8'), { mode: 'transform' }).replace(/from (['"])(\.{1,2}\/[^'"]+)\1/g, (match, quote, specifier) => path.extname(specifier) ? match : 'from ' + quote + specifier + '.js' + quote));
     }
   }
 }
